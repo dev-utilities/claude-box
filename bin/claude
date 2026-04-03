@@ -1,0 +1,35 @@
+#!/bin/bash
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+
+# Write only alive IDE PIDs (verify each PID is actually running)
+# Use a temp file + mv for atomic update to avoid race with the container's lock file guardian
+ALIVE_PIDS_TMP=$(mktemp ~/.claude/.alive_pids.XXXXXX)
+for pid in $(grep -oh '"pid":[0-9]*' ~/.claude/ide/*.lock 2>/dev/null | grep -o '[0-9]*'); do
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "$pid" >> "$ALIVE_PIDS_TMP"
+  fi
+done
+mv "$ALIVE_PIDS_TMP" ~/.claude/.alive_pids
+echo "[claude] Alive IDE PIDs written: $(tr '\n' ' ' < ~/.claude/.alive_pids)"
+
+EXTRA_MOUNTS=()
+
+# Detect git worktree: .git is a file, not a directory
+if [ -f "${PWD}/.git" ]; then
+  # Extract main repo path from .git file
+  # e.g. "gitdir: /path/to/main/.git/worktrees/branch"
+  GITDIR=$(cat "${PWD}/.git" | grep gitdir | sed 's/^gitdir: //')
+  MAIN_REPO=$(echo "$GITDIR" | sed 's|/.git/worktrees/.*||')
+
+  if [ -d "${MAIN_REPO}/.git" ]; then
+    echo "[claude] Worktree detected. Mounting main repo .git: ${MAIN_REPO}/.git"
+    EXTRA_MOUNTS+=(-v "${MAIN_REPO}/.git:${MAIN_REPO}/.git")
+  fi
+fi
+
+docker compose -f "$SCRIPT_DIR/../docker-compose.yml" run --rm \
+  -v "${PWD}:${PWD}" \
+  -w "${PWD}" \
+  "${EXTRA_MOUNTS[@]}" \
+  claude "$@"
