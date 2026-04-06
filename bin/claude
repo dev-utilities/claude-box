@@ -2,16 +2,18 @@
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 
-# Write only alive IDE PIDs (verify each PID is actually running)
+# Write only alive IDE ports (verify each port is actually listening)
 # Use a temp file + mv for atomic update to avoid race with the container's lock file guardian
-ALIVE_PIDS_TMP=$(mktemp ~/.claude/.alive_pids.XXXXXX)
-for pid in $(grep -oh '"pid":[0-9]*' ~/.claude/ide/*.lock 2>/dev/null | grep -o '[0-9]*'); do
-  if kill -0 "$pid" 2>/dev/null; then
-    echo "$pid" >> "$ALIVE_PIDS_TMP"
+ALIVE_PORTS_TMP=$(mktemp ~/.claude/.alive_ports.XXXXXX)
+for lockfile in ~/.claude/ide/*.lock; do
+  [ -f "$lockfile" ] || continue
+  port=$(basename "$lockfile" .lock)
+  if nc -z localhost "$port" 2>/dev/null; then
+    echo "$port" >> "$ALIVE_PORTS_TMP"
   fi
 done
-mv "$ALIVE_PIDS_TMP" ~/.claude/.alive_pids
-echo "[claude] Alive IDE PIDs written: $(tr '\n' ' ' < ~/.claude/.alive_pids)"
+mv "$ALIVE_PORTS_TMP" ~/.claude/.alive_ports
+echo "[claude] Alive IDE ports written: $(tr '\n' ' ' < ~/.claude/.alive_ports)"
 
 EXTRA_MOUNTS=()
 
