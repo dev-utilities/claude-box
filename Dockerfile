@@ -7,14 +7,19 @@ RUN apt-get update && apt-get install -y \
     socat \
     && rm -rf /var/lib/apt/lists/*
 
-COPY entrypoint.sh /root/entrypoint.sh
+# Install Claude Code as root
+RUN curl -fsSL https://claude.ai/install.sh | bash && \
+    cp /root/.local/bin/claude /usr/local/bin/claude && \
+    chmod +x /usr/local/bin/claude
 
-# Run as root inside the container
+ENV PATH="/root/.local/bin:/usr/local/bin/:${PATH}"
+
+RUN useradd -m claudeuser
+
+COPY entrypoint.sh /home/claudeuser/entrypoint.sh
+RUN chmod +x /home/claudeuser/entrypoint.sh
+
 WORKDIR /workspace
 
-# Install Claude Code as root
-RUN curl -fsSL https://claude.ai/install.sh | bash
-
-ENV PATH="/root/.local/bin:${PATH}"
-
-ENTRYPOINT ["bash", "/root/entrypoint.sh"]
+USER claudeuser
+ENTRYPOINT ["/home/claudeuser/entrypoint.sh"]

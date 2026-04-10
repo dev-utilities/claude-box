@@ -7,11 +7,10 @@ services:
     tty: true
     stdin_open: true
     environment:
-      - CLAUDE_CONFIG_DIR=/root/.claude
+      - CLAUDE_CONFIG_DIR=/home/claudeuser/.claude
       - CLAUDE_CODE_SSE_PORT=${CLAUDE_CODE_SSE_PORT}
       - ENABLE_IDE_INTEGRATION=${ENABLE_IDE_INTEGRATION}
 
     volumes:
-      - ${HOME}/.claude:/root/.claude
-      - ${HOME}/.claude.json:/root/.claude.json
-      - ./entrypoint.sh:/root/entrypoint.sh
+      - ${HOME}/.claude:/home/claudeuser/.claude
+      - ${HOME}/.claude.json:/home/claudeuser/.claude.json
