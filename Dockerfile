@@ -7,15 +7,15 @@ RUN apt-get update && apt-get install -y \
     socat \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code as root
-RUN curl -fsSL https://claude.ai/install.sh | bash && \
-    cp /root/.local/bin/claude /usr/local/bin/claude && \
-    chmod +x /usr/local/bin/claude
-
-ENV PATH="/root/.local/bin:/usr/local/bin/:${PATH}"
-
 RUN useradd -m claudeuser
 
+# Install Claude Code as claudeuser so it installs to the correct user directory
+USER claudeuser
+ENV HOME=/home/claudeuser
+ENV PATH="/home/claudeuser/.local/bin:/usr/local/bin/:${PATH}"
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+USER root
 COPY entrypoint.sh /home/claudeuser/entrypoint.sh
 RUN chmod +x /home/claudeuser/entrypoint.sh
 
