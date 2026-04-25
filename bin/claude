@@ -2,18 +2,49 @@
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 
+# Auto-detect CLAUDE_PROFILE from {pwd}/.claude/box-profile if not already set
+if [ -z "$CLAUDE_PROFILE" ] && [ -f "${PWD}/.claude/box-profile" ]; then
+  CLAUDE_PROFILE=$(tr -d '[:space:]' < "${PWD}/.claude/box-profile")
+fi
+
+# Resolve profile-aware paths (CLAUDE_PROFILE is optional; empty = default ~/.claude)
+CLAUDE_DIR="${HOME}/.claude${CLAUDE_PROFILE:+-${CLAUDE_PROFILE}}"
+#CLAUDE_JSON="${HOME}/.claude${CLAUDE_PROFILE:+-${CLAUDE_PROFILE}}.json"
+
+# Ensure profile dir and auth file exist before mounting
+mkdir -p "${CLAUDE_DIR}"
+#touch "${CLAUDE_JSON}"
+
+if [ -n "$CLAUDE_PROFILE" ]; then
+  echo "[claude] Profile: ${CLAUDE_PROFILE} (${CLAUDE_DIR})"
+else
+  echo "[claude] No profile detected, using default (${CLAUDE_DIR})"
+fi
+
 # Write only alive IDE ports (verify each port is actually listening)
 # Use a temp file + mv for atomic update to avoid race with the container's lock file guardian
-ALIVE_PORTS_TMP=$(mktemp ~/.claude/.alive_ports.XXXXXX)
-for lockfile in ~/.claude/ide/*.lock; do
+ALIVE_PORTS_TMP=$(mktemp "${CLAUDE_DIR}/.alive_ports.XXXXXX")
+for lockfile in "${CLAUDE_DIR}"/ide/*.lock; do
   [ -f "$lockfile" ] || continue
   port=$(basename "$lockfile" .lock)
   if nc -z localhost "$port" 2>/dev/null; then
     echo "$port" >> "$ALIVE_PORTS_TMP"
   fi
 done
-mv "$ALIVE_PORTS_TMP" ~/.claude/.alive_ports
-echo "[claude] Alive IDE ports written: $(tr '\n' ' ' < ~/.claude/.alive_ports)"
+mv "$ALIVE_PORTS_TMP" "${CLAUDE_DIR}/.alive_ports"
+echo "[claude] Alive IDE ports written: $(tr '\n' ' ' < "${CLAUDE_DIR}/.alive_ports")"
+
+COMPOSE_RUN_OPTS=()
+
+# Parse box-level flags before passing remaining args to Claude
+BOX_ARGS=()
+PASSTHROUGH_ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --rebuild) COMPOSE_RUN_OPTS+=(--build) ;;
+    *)         PASSTHROUGH_ARGS+=("$arg") ;;
+  esac
+done
 
 EXTRA_MOUNTS=()
 
@@ -30,8 +61,10 @@ if [ -f "${PWD}/.git" ]; then
   fi
 fi
 
+CLAUDE_DIR="$CLAUDE_DIR" CLAUDE_JSON="$CLAUDE_JSON" \
 docker compose -f "$SCRIPT_DIR/../docker-compose.yml" run --rm \
+  "${COMPOSE_RUN_OPTS[@]}" \
   -v "${PWD}:${PWD}" \
   -w "${PWD}" \
   "${EXTRA_MOUNTS[@]}" \
-  claude "$@"
+  claude "${PASSTHROUGH_ARGS[@]}"

@@ -12,5 +12,4 @@ services:
       - ENABLE_IDE_INTEGRATION=${ENABLE_IDE_INTEGRATION}
 
     volumes:
-      - ${HOME}/.claude:/home/claudeuser/.claude
-      - ${HOME}/.claude.json:/home/claudeuser/.claude.json
+      - ${CLAUDE_DIR}:/home/claudeuser/.claude

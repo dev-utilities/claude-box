@@ -1,4 +1,5 @@
-FROM debian:12.13-slim
+# Python 3.12.13 (latest stable as of 2026-03-03) on Debian 12 Bookworm slim
+FROM python:3.12.13-slim-bookworm
 
 RUN apt-get update && apt-get install -y \
     curl \
@@ -6,6 +7,11 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     socat \
     && rm -rf /var/lib/apt/lists/*
+
+# Install global Python requirements
+COPY global_python_requirements.txt /tmp/global_python_requirements.txt
+RUN pip install --no-cache-dir -r /tmp/global_python_requirements.txt \
+ && if command -v graphify > /dev/null 2>&1; then graphify install; fi
 
 RUN useradd -m claudeuser
 

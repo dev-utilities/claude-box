@@ -51,6 +51,41 @@ To manually connect Claude to PyCharm, run `/ide`.
 
 ---
 
+## Multi-Profile Support
+
+Claude Box supports multiple isolated Claude profiles, useful when working across different clients or projects that need separate credentials and settings.
+
+### How it works
+
+Each profile gets its own config directory on the host: `~/.claude-<profile>`.
+
+The `claude` binary picks the profile in this order:
+1. `CLAUDE_PROFILE` environment variable (if already exported)
+2. `{pwd}/.claude/box-profile` file in the current project directory
+
+A status line is always printed at startup so you know which profile is active.
+
+### Setting up a project profile
+
+Create a `.claude/box-profile` file in your project root:
+
+```zsh
+mkdir -p .claude
+echo "client-a" > .claude/box-profile
+```
+
+Now running `claude` from that directory will automatically use `~/.claude-client-a`.
+
+### Switching profiles manually
+
+Export `CLAUDE_PROFILE` before running `claude`:
+
+```zsh
+CLAUDE_PROFILE=client-b claude
+```
+
+---
+
 ## Notes
 
 - Git worktrees are detected automatically — the main repo's `.git` is mounted for you

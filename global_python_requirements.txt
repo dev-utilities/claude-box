@@ -1,0 +1,4 @@
+# Global Python packages installed into the Claude Box container.
+# Add any packages here that should be available to Claude across all projects.
+
+graphifyy==0.5.0
