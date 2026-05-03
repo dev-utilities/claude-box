@@ -136,7 +136,7 @@ glog "Guard UUID: $GUARD_UUID"
 
       # Lock file missing but PID still alive - restore it
       if [ ! -f "$original" ]; then
-        cp "$backup" "$original"
+        cp -n "$backup" "$original"
         glog "Restored lock file: $fname"
       fi
     done

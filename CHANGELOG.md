@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`--yolo` flag** — alias for `--dangerously-skip-permissions`, passed through to Claude.
+- **Session ID in live log filename** — `--live-log` paths can now include `SESSION_ID` as a placeholder; Claude detects its session ID at startup by finding the most recently modified `.jsonl` in `~/.claude/projects/<project-key>/` and substitutes it into the filename.
+- **Automatic `SESSION_ID` injection** — if the `--live-log` path does not contain `SESSION_ID`, Python inserts it before the file extension automatically (e.g. `chat.md` → `chat-SESSION_ID.md`).
+- **Timestamp fallback for session ID** — if the project-key lookup fails, a Python-generated timestamp (`YYYYMMDD_HHMMSS`) is embedded in the prompt as a fallback session ID.
+
+### Changed
+
+- **Arg parsing migrated to `argparse`** — replaced the manual `while` loop with `argparse.parse_known_args`; unknown args are still passed through to Claude unchanged.
+- **Live log skips setup exchange** — the initial logging-setup message and Claude's response to it are no longer written to the log file; logging starts from the first real user message.
+- **Live log is silent** — Claude no longer mentions or acknowledges the logging behavior in its responses.
+
+---
+
 ## [0.3.1] - 2026-05-03
 
 ### Added
