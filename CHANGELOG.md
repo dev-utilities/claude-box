@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.3.1] - 2026-05-03
+
+### Added
+
+- **Shared `ide/` and `ide-backups/` across all profiles** — `~/.claude/ide` and `~/.claude/ide-backups` are now the single canonical locations for IDE lock files and their backups. Both are bind-mounted directly into the container regardless of which profile is active, so the lock file guardian works correctly across profile switches.
+
+### Changed
+
+- **`box-profile` lookup walks up the directory tree** — `bin/claude` now searches for `.claude/box-profile` by traversing from `$PWD` toward the filesystem root, the same way `git` finds `.git`. Previously it only checked `$PWD` exactly, so running from a subdirectory would silently fall back to the default profile.
+- **IDE port scan reads from `~/.claude/ide` directly** — the alive-ports check now always reads lock files from the shared `~/.claude/ide` instead of `${CLAUDE_DIR}/ide`, keeping it consistent with the new bind-mount approach.
+
+---
+
 ## [0.3.0] - 2026-04-25
 
 ### Added
