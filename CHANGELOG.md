@@ -10,10 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **`--live-log <file>` flag** — instructs Claude to append each exchange to a markdown file during the session. Useful for reviewing long outputs in an editor without copying from the terminal. Also configurable via the `CLAUDE_BOX_LIVE_LOG` env var; the flag takes precedence if both are set.
 - **Shared `ide/` and `ide-backups/` across all profiles** — `~/.claude/ide` and `~/.claude/ide-backups` are now the single canonical locations for IDE lock files and their backups. Both are bind-mounted directly into the container regardless of which profile is active, so the lock file guardian works correctly across profile switches.
 
 ### Changed
 
+- **`CLAUDE_PROFILE` renamed to `CLAUDE_BOX_PROFILE`** — all claude-box specific env vars now share the `CLAUDE_BOX_` prefix for consistency. Update any shell profiles or scripts that export `CLAUDE_PROFILE`.
 - **`box-profile` lookup walks up the directory tree** — `bin/claude` now searches for `.claude/box-profile` by traversing from `$PWD` toward the filesystem root, the same way `git` finds `.git`. Previously it only checked `$PWD` exactly, so running from a subdirectory would silently fall back to the default profile.
 - **IDE port scan reads from `~/.claude/ide` directly** — the alive-ports check now always reads lock files from the shared `~/.claude/ide` instead of `${CLAUDE_DIR}/ide`, keeping it consistent with the new bind-mount approach.
 

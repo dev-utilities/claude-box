@@ -49,6 +49,33 @@ chmod +x bin/claude
 
 To manually connect Claude to PyCharm, run `/ide`.
 
+### Flags
+
+| Flag | Description |
+|---|---|
+| `--rebuild` | Rebuild the Docker image before starting |
+| `--live-log <file>` | Log every exchange to a markdown file during the session |
+
+### Live Log
+
+The `--live-log` flag instructs Claude to append each prompt and response to a markdown file as the session progresses — useful for reviewing long outputs in your editor.
+
+```zsh
+# log to chat.md in the current directory
+claude --live-log chat.md
+
+# log to a custom path
+claude --live-log /tmp/session.md
+```
+
+You can also set `CLAUDE_BOX_LIVE_LOG` in your shell profile to enable it automatically for every session:
+
+```zsh
+export CLAUDE_BOX_LIVE_LOG=~/claude-logs/chat.md
+```
+
+The flag takes precedence over the env var if both are set.
+
 ---
 
 ## Multi-Profile Support
@@ -60,8 +87,8 @@ Claude Box supports multiple isolated Claude profiles, useful when working acros
 Each profile gets its own config directory on the host: `~/.claude-<profile>`.
 
 The `claude` binary picks the profile in this order:
-1. `CLAUDE_PROFILE` environment variable (if already exported)
-2. `{pwd}/.claude/box-profile` file in the current project directory
+1. `CLAUDE_BOX_PROFILE` environment variable (if already exported)
+2. `.claude/box-profile` file — searched from the current directory upward to the filesystem root (same as how `git` finds `.git`), so it works from any subdirectory within a project
 
 A status line is always printed at startup so you know which profile is active.
 
@@ -78,10 +105,10 @@ Now running `claude` from that directory will automatically use `~/.claude-clien
 
 ### Switching profiles manually
 
-Export `CLAUDE_PROFILE` before running `claude`:
+Export `CLAUDE_BOX_PROFILE` before running `claude`:
 
 ```zsh
-CLAUDE_PROFILE=client-b claude
+CLAUDE_BOX_PROFILE=client-b claude
 ```
 
 ---
