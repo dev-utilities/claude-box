@@ -17,6 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Removed
 
 - **`claude-yolo` wrappers** — `bin/claude-yolo`, `bin/claude-yolo.bat`, and `bin/claude-yolo.ps1` removed. Use `claude --yolo` instead.
+
+### Known limitations
+
+- **Git worktrees on Windows are unsupported** — the `.git` file in a worktree stores a Windows-format path that Linux git inside the container cannot resolve. The launcher prints a warning at startup and injects a note into Claude's context so it stays cautious about git operations. Non-worktree repos work fine on Windows.
 - **Session ID in live log filename** — `--live-log` paths can now include `SESSION_ID` as a placeholder; Claude detects its session ID at startup by finding the most recently modified `.jsonl` in `~/.claude/projects/<project-key>/` and substitutes it into the filename.
 - **Automatic `SESSION_ID` injection** — if the `--live-log` path does not contain `SESSION_ID`, Python inserts it before the file extension automatically (e.g. `chat.md` → `chat-SESSION_ID.md`).
 - **Timestamp fallback for session ID** — if the project-key lookup fails, a Python-generated timestamp (`YYYYMMDD_HHMMSS`) is embedded in the prompt as a fallback session ID.

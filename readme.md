@@ -120,3 +120,9 @@ CLAUDE_BOX_PROFILE=client-b claude
 - The lock file guardian handles the Docker startup delay transparently
 - Credentials persist across container restarts via the `~/.claude` volume mount
 - No dev containers needed — this approach is lighter and faster, especially in PyCharm where dev containers feel sluggish
+
+### Windows — git worktree limitation
+
+Git worktrees are **not supported on Windows**. When git creates a worktree on Windows, the `.git` file stores a Windows-format path (e.g. `C:\Users\...`) that Linux git inside the container cannot resolve.
+
+Claude will warn you at startup if a worktree is detected and will be cautious about git operations that depend on worktree metadata. Regular git usage (non-worktree repos) works fine on Windows.

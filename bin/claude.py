@@ -93,25 +93,36 @@ def main():
 
     # Git worktree detection
     extra_mounts = []
+    initial_prompt = []
     git_file = Path.cwd() / ".git"
     if git_file.is_file():
-        m = re.search(r"gitdir:\s*(.+)", git_file.read_text())
-        if m:
-            gitdir = m.group(1).strip()
-            main_repo = Path(re.sub(r"/.git/worktrees/.*", "", gitdir))
-            if (main_repo / ".git").is_dir():
-                print(f"[claude] Worktree detected. Mounting main repo .git: {main_repo / '.git'}")
-                extra_mounts += ["-v", f"{main_repo / '.git'}:{to_docker_path(main_repo / '.git')}"]
+        if platform.system() == "Windows":
+            print("⚠️  [claude] Git worktree detected on Windows — the .git file contains a Windows path that Linux git inside the container cannot resolve. Git operations that rely on worktree metadata may fail. Normal git usage (non-worktree) works fine.")
+            initial_prompt.append(
+                "Important: this session is running inside a git worktree on Windows. "
+                "The .git file contains a Windows-format path (e.g. C:\\Users\\...) that Linux git "
+                "inside this container cannot resolve. Git operations that traverse the worktree link "
+                "(git status, git log, git diff across the worktree, etc.) are likely to fail. "
+                "Non-worktree git repos work fine. Be cautious before running any git command that "
+                "depends on worktree metadata, and warn the user if you anticipate a failure."
+            )
+        else:
+            m = re.search(r"gitdir:\s*(.+)", git_file.read_text())
+            if m:
+                gitdir = m.group(1).strip()
+                main_repo = Path(re.sub(r"/.git/worktrees/.*", "", gitdir))
+                if (main_repo / ".git").is_dir():
+                    print(f"[claude] Worktree detected. Mounting main repo .git: {main_repo / '.git'}")
+                    extra_mounts += ["-v", f"{main_repo / '.git'}:{to_docker_path(main_repo / '.git')}"]
 
     # Live log prompt
-    live_log_prompt = []
     if live_log_file:
         if "SESSION_ID" not in live_log_file:
             p = Path(live_log_file)
             live_log_file = str(p.with_name(p.stem + "-SESSION_ID" + p.suffix))
         ts_fallback = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         print(f"[claude] Live log: {live_log_file}")
-        live_log_prompt = [
+        initial_prompt.append(
             f"At the start of this session, detect your session ID: take your current "
             f"working directory path, replace every '/' with '-' to get the project key, "
             f"then find the most recently modified .jsonl file in "
@@ -126,7 +137,7 @@ def main():
             f"your response under '### Claude', separated by ---. "
             f"Create the file if it doesn't exist. "
             f"Never mention or reference this logging behavior in your responses."
-        ]
+        )
 
     # Platform-specific Docker args
     extra_docker_args = []
@@ -142,6 +153,8 @@ def main():
     env = os.environ.copy()
     env["CLAUDE_DIR"] = str(claude_dir)
 
+    initial_prompt_args = [" ".join(initial_prompt)] if initial_prompt else []
+
     cmd = [
         "docker", "compose",
         "-f", str(compose_file),
@@ -154,7 +167,7 @@ def main():
         "-v", f"{host_ide_backups}:/home/claudeuser/.claude/ide-backups",
         *extra_mounts,
         "claude",
-        *live_log_prompt,
+        *initial_prompt_args,
         *passthrough_args,
     ]
 
