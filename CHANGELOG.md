@@ -11,6 +11,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - **`--yolo` flag** — alias for `--dangerously-skip-permissions`, passed through to Claude.
+- **PowerShell launchers** — `bin/claude.ps1` and `bin/claude-yolo.ps1` added for Windows PowerShell support, mirroring the existing `.bat` wrappers.
+- **Windows CRLF fix** — added `.gitattributes` forcing LF line endings for all `.sh` files, and a `sed` strip in the Dockerfile, to prevent `entrypoint.sh` from failing on Linux when checked out on Windows.
+
+### Removed
+
+- **`claude-yolo` wrappers** — `bin/claude-yolo`, `bin/claude-yolo.bat`, and `bin/claude-yolo.ps1` removed. Use `claude --yolo` instead.
 - **Session ID in live log filename** — `--live-log` paths can now include `SESSION_ID` as a placeholder; Claude detects its session ID at startup by finding the most recently modified `.jsonl` in `~/.claude/projects/<project-key>/` and substitutes it into the filename.
 - **Automatic `SESSION_ID` injection** — if the `--live-log` path does not contain `SESSION_ID`, Python inserts it before the file extension automatically (e.g. `chat.md` → `chat-SESSION_ID.md`).
 - **Timestamp fallback for session ID** — if the project-key lookup fails, a Python-generated timestamp (`YYYYMMDD_HHMMSS`) is embedded in the prompt as a fallback session ID.

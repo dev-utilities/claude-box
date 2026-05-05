@@ -23,7 +23,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 
 USER root
 COPY entrypoint.sh /home/claudeuser/entrypoint.sh
-RUN chmod +x /home/claudeuser/entrypoint.sh
+RUN sed -i 's/\r$//' /home/claudeuser/entrypoint.sh && chmod +x /home/claudeuser/entrypoint.sh
 
 WORKDIR /workspace
 

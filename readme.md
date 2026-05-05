@@ -4,7 +4,7 @@ Run Claude Code inside Docker with full IDE integration on macOS.
 
 > **Tested with:** PyCharm. Should work with VS Code as well — not yet verified.
 >
-> **Note:** This project is in its early stages and currently focused on macOS. Windows and Linux support may come in the future — contributions are welcome!
+> **Note:** This project is in its early stages and currently focused on macOS and Windows. Linux support may come in the future — contributions are welcome!
 
 ---
 
@@ -54,6 +54,7 @@ To manually connect Claude to PyCharm, run `/ide`.
 | Flag | Description |
 |---|---|
 | `--rebuild` | Rebuild the Docker image before starting |
+| `--yolo` | Alias for `--dangerously-skip-permissions` — skips all permission prompts |
 | `--live-log <file>` | Log every exchange to a markdown file during the session |
 
 ### Live Log
