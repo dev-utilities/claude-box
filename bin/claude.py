@@ -47,23 +47,39 @@ def to_docker_path(p: Path) -> str:
 def main():
     script_dir = Path(__file__).parent
     compose_file = script_dir.parent / "docker-compose.yml"
-
+    container_claude_dir = "/home/claudeuser/.claude"
     # Profile detection
     profile = find_profile()
     suffix = f"-{profile}" if profile else ""
     claude_dir = Path.home() / f".claude{suffix}"
 
-    claude_dir.mkdir(parents=True, exist_ok=True)
-    (Path.home() / ".claude" / "ide").mkdir(parents=True, exist_ok=True)
-    (Path.home() / ".claude" / "ide-backups").mkdir(parents=True, exist_ok=True)
+    host_main_claude = Path.home() / ".claude"
+    host_main_claude.mkdir(parents=True, exist_ok=True)
 
+    extra_mounts = []
+    # Ensure the profile dir has real ide/ directories (not stale host-path symlinks).
+    # Docker can't overlay a bind mount on top of a dangling symlink, so we remove any
+    # broken symlinks and create the real dirs now. The docker -v flags below will then
+    # overlay them with the shared main_claude content.
     if profile:
+        default_claude = "/home/claudeuser/default-claude"
+        for name in ("ide", "ide-backups", ".alive_ports"):
+            d = claude_dir / name
+            if d.is_symlink():
+                d.unlink()
+        extra_mounts.extend([
+            "-v", f"{host_main_claude}:{default_claude}",
+        ])
         print(f"[claude] Profile: {profile} ({claude_dir})")
     else:
         print(f"[claude] No profile detected, using default ({claude_dir})")
 
-    # Write alive IDE ports atomically
-    ide_dir = Path.home() / ".claude" / "ide"
+    ide_dir = host_main_claude / "ide"
+    ide_dir.mkdir(parents=True, exist_ok=True)
+    (host_main_claude / "ide-backups").mkdir(parents=True, exist_ok=True)
+    claude_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write alive IDE ports atomically to main ~/.claude (shared across all profiles)
     alive_ports = []
     for lockfile in sorted(ide_dir.glob("*.lock")):
         try:
@@ -73,10 +89,10 @@ def main():
         except ValueError:
             pass
 
-    with tempfile.NamedTemporaryFile("w", dir=claude_dir, delete=False, suffix=".tmp") as f:
+    with tempfile.NamedTemporaryFile("w", dir=host_main_claude, delete=False, suffix=".tmp") as f:
         f.write("\n".join(alive_ports))
         tmp_path = f.name
-    os.replace(tmp_path, claude_dir / ".alive_ports")
+    os.replace(tmp_path, host_main_claude / ".alive_ports")
     print(f"[claude] Alive IDE ports written: {' '.join(alive_ports)}")
 
     # Arg parsing
@@ -92,7 +108,7 @@ def main():
     live_log_file = parsed.live_log
 
     # Git worktree detection
-    extra_mounts = []
+
     initial_prompt = []
     git_file = Path.cwd() / ".git"
     if git_file.is_file():
@@ -147,14 +163,15 @@ def main():
     cwd = Path.cwd()
     host_cwd = str(cwd)
     container_cwd = to_docker_path(cwd)
-    host_ide = str(Path.home() / ".claude" / "ide")
-    host_ide_backups = str(Path.home() / ".claude" / "ide-backups")
-
     env = os.environ.copy()
     env["CLAUDE_DIR"] = str(claude_dir)
+    env["CLAUDE_CONFIG_DIR"] = str(container_claude_dir)
+    if profile:
+        env["DEFAULT_CLAUDE_PATH"] = "/home/claudeuser/default-claude"
+    else:
+        env.pop("DEFAULT_CLAUDE_PATH", None)
 
-    initial_prompt_args = [" ".join(initial_prompt)] if initial_prompt else []
-
+    initial_prompt_args = ["\n".join(initial_prompt)] if initial_prompt else []
     cmd = [
         "docker", "compose",
         "-f", str(compose_file),
@@ -163,8 +180,6 @@ def main():
         *extra_docker_args,
         "-v", f"{host_cwd}:{container_cwd}",
         "-w", container_cwd,
-        "-v", f"{host_ide}:/home/claudeuser/.claude/ide",
-        "-v", f"{host_ide_backups}:/home/claudeuser/.claude/ide-backups",
         *extra_mounts,
         "claude",
         *initial_prompt_args,

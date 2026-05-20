@@ -10,6 +10,7 @@ services:
       - CLAUDE_CONFIG_DIR=/home/claudeuser/.claude
       - CLAUDE_CODE_SSE_PORT=${CLAUDE_CODE_SSE_PORT}
       - ENABLE_IDE_INTEGRATION=${ENABLE_IDE_INTEGRATION}
+      - DEFAULT_CLAUDE_PATH=${DEFAULT_CLAUDE_PATH:-}
 
     volumes:
       - ${CLAUDE_DIR}:/home/claudeuser/.claude

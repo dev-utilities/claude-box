@@ -1,8 +1,12 @@
 #!/bin/bash
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+SUDO_PREFIX=""
+if [ "$EUID" -eq 0 ] && [ -n "$SUDO_USER" ]; then
+  SUDO_PREFIX="sudo -E -u $SUDO_USER"
+fi
 for py in python3 python; do
   if command -v "$py" &>/dev/null && "$py" -c "import sys; assert sys.version_info>=(3,8)" 2>/dev/null; then
-    exec "$py" "$SCRIPT_DIR/claude.py" "$@"
+    exec $SUDO_PREFIX "$py" "$SCRIPT_DIR/claude.py" "$@"
   fi
 done
 echo "[claude-box] Python 3.8+ not found. Install it and ensure 'python3' or 'python' is on your PATH." >&2
