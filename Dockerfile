@@ -22,10 +22,10 @@ ENV PATH="/home/claudeuser/.local/bin:/usr/local/bin/:${PATH}"
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
 USER root
-COPY entrypoint.sh /home/claudeuser/entrypoint.sh
-RUN chmod +x /home/claudeuser/entrypoint.sh
+COPY entrypoint.py /home/claudeuser/entrypoint.py
+# RUN chmod +x /home/claudeuser/entrypoint.py
 
 WORKDIR /workspace
 
 USER claudeuser
-ENTRYPOINT ["/home/claudeuser/entrypoint.sh"]
+ENTRYPOINT ["python", "/home/claudeuser/entrypoint.py"]

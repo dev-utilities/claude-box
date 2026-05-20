@@ -4,7 +4,7 @@ Run Claude Code inside Docker with full IDE integration on macOS.
 
 > **Tested with:** PyCharm. Should work with VS Code as well — not yet verified.
 >
-> **Note:** This project is in its early stages and currently focused on macOS. Windows and Linux support may come in the future — contributions are welcome!
+> **Note:** This project is in its early stages and currently focused on macOS and Windows. Linux support may come in the future — contributions are welcome!
 
 ---
 
@@ -54,6 +54,7 @@ To manually connect Claude to PyCharm, run `/ide`.
 | Flag | Description |
 |---|---|
 | `--rebuild` | Rebuild the Docker image before starting |
+| `--yolo` | Alias for `--dangerously-skip-permissions` — skips all permission prompts |
 | `--live-log <file>` | Log every exchange to a markdown file during the session |
 
 ### Live Log
@@ -119,3 +120,9 @@ CLAUDE_BOX_PROFILE=client-b claude
 - The lock file guardian handles the Docker startup delay transparently
 - Credentials persist across container restarts via the `~/.claude` volume mount
 - No dev containers needed — this approach is lighter and faster, especially in PyCharm where dev containers feel sluggish
+
+### Windows — git worktree limitation
+
+Git worktrees are **not supported on Windows**. When git creates a worktree on Windows, the `.git` file stores a Windows-format path (e.g. `C:\Users\...`) that Linux git inside the container cannot resolve.
+
+Claude will warn you at startup if a worktree is detected and will be cautious about git operations that depend on worktree metadata. Regular git usage (non-worktree repos) works fine on Windows.
