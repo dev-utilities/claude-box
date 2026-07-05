@@ -1,4 +1,8 @@
 .idea
 .vscode
 .claude
+.antigravitycli
 graphify-out/
+__pycache__/
+*.pyc
+.DS_Store

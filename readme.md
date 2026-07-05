@@ -30,8 +30,10 @@ export PATH="path/to/claude-box/bin:$PATH"
 
 ### 2. Build the container
 
+The Docker image is built automatically the first time you run `claude`. To force a rebuild later (e.g. after changing `docker/Dockerfile.claude` or `docker/global_python_requirements.txt`):
+
 ```zsh
-docker compose build
+claude --rebuild
 ```
 
 ### 3. Make `claude` shell file executable
@@ -76,6 +78,27 @@ export CLAUDE_BOX_LIVE_LOG=~/claude-logs/chat.md
 ```
 
 The flag takes precedence over the env var if both are set.
+
+---
+
+## Codex CLI — Containerized
+
+This repo also includes a Codex CLI runner that uses the same Docker wrapper style, without IDE integration. The Codex image is based on Ubuntu 24.04 and includes Node.js 24 LTS, Python 3, Git, and common build tooling.
+
+The image is built automatically the first time you run `codex`. To force a rebuild later (e.g. after changing `docker/Dockerfile.codex`), pass `--rebuild`. Run Codex from any project directory:
+
+```zsh
+codex
+codex exec "summarize this repo"
+```
+
+The wrapper mounts your project and persists Codex state by mounting host `~/.codex` to `/home/codexuser/.codex` in the container. To isolate it from your normal Codex config, set `CODEX_BOX_DIR`:
+
+```zsh
+CODEX_BOX_DIR=~/.codex-box codex
+```
+
+The wrapper also supports `--yolo`, which maps to Codex's `--dangerously-bypass-approvals-and-sandbox` flag.
 
 ---
 

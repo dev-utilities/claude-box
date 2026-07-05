@@ -43,16 +43,18 @@ def main():
     (shared_dir / "ide-backups").mkdir(parents=True, exist_ok=True)
 
     print("[entrypoint] IDE dir contents at startup:")
-    for p in sorted((shared_dir / "ide").iterdir()) if (shared_dir / "ide").exists() else []:
+    for p in sorted((shared_dir / "ide").iterdir()):
         print(f"  {p}")
 
     # Start socat
     if sse_port:
-        socat_log = open(config_dir / "socat.log", "w")
+        socat_log_path = config_dir / "socat.log"
+        socat_log = open(socat_log_path, "w")
         socat = subprocess.Popen(
             ["socat", "-v",
              f"TCP-LISTEN:{sse_port},fork,reuseaddr",
              f"TCP:host.docker.internal:{sse_port}"],
+            stdout=socat_log,
             stderr=socat_log,
         )
         socat_log.close()
@@ -61,6 +63,7 @@ def main():
             print("[entrypoint] ERROR: socat failed to start")
         else:
             print(f"[entrypoint] socat started (PID={socat.pid})")
+        print(f"[entrypoint] socat log: {socat_log_path}")
     else:
         print("[entrypoint] Skipping socat (CLAUDE_CODE_SSE_PORT not set)")
 
@@ -73,7 +76,6 @@ def main():
     subprocess.Popen(guard_args, stdout=guard_log, stderr=guard_log)
     guard_log.close()
     print(f"[entrypoint] Guard started — log: {guard_log_path}")
-    print(f"[entrypoint] socat log: {config_dir}/socat.log")
     print(f"[entrypoint] Launching: claude {' '.join(sys.argv[1:])}")
     print(f"[entrypoint] =============================")
 

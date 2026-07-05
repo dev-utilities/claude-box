@@ -1,0 +1,57 @@
+# Ubuntu 24.04 gives Codex a broad, glibc-based userspace that is closer to
+# common developer machines than slim language images.
+FROM ubuntu:24.04
+
+SHELL ["/bin/bash", "-lc"]
+
+ARG NVM_VERSION=v0.40.3
+ARG NODE_VERSION=24.15.0
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    gnupg \
+    less \
+    openssh-client \
+    pkg-config \
+    python-is-python3 \
+    python3 \
+    python3-pip \
+    python3-venv \
+    sudo \
+    unzip \
+    xz-utils \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ubuntu:24.04 ships a default 'ubuntu' user at UID 1000; remove it so
+# codexuser gets UID 1000 and mounted files match the typical host user.
+RUN userdel -r ubuntu && useradd -m -u 1000 codexuser
+
+USER codexuser
+ENV HOME=/home/codexuser
+ENV CODEX_HOME=/home/codexuser/.codex
+ENV NODE_VERSION=${NODE_VERSION}
+ENV NVM_DIR=/home/codexuser/.nvm
+ENV PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:/home/codexuser/.local/bin:/home/codexuser/.codex/bin:${PATH}"
+
+RUN mkdir -p "$CODEX_HOME" \
+    && git clone --quiet --depth 1 --branch "$NVM_VERSION" https://github.com/nvm-sh/nvm.git "$NVM_DIR" \
+    && source "$NVM_DIR/nvm.sh" \
+    && nvm install "$NODE_VERSION" \
+    && nvm alias default "$NODE_VERSION" \
+    && nvm use default \
+    && nvm cache clear \
+    && npm install -g @openai/codex \
+    && node --version \
+    && npm --version \
+    && python --version \
+    && codex --version
+
+WORKDIR /workspace
+
+ENTRYPOINT ["codex"]

@@ -5,12 +5,12 @@ import argparse
 import datetime
 import os
 import platform
-import re
 import socket
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from box_common import ensure_image, main_git_mount, run_or_exec, to_docker_path
 
 
 def find_profile() -> str:
@@ -35,18 +35,9 @@ def is_port_alive(port: int) -> bool:
         return s.connect_ex(("localhost", port)) == 0
 
 
-def to_docker_path(p: Path) -> str:
-    """Convert a host path to the equivalent Linux path inside the container."""
-    if platform.system() == "Windows":
-        s = str(p)
-        drive, rest = os.path.splitdrive(s)
-        return f"/{drive[0].lower()}{rest.replace(chr(92), '/')}"
-    return str(p)
-
-
 def main():
     script_dir = Path(__file__).parent
-    compose_file = script_dir.parent / "docker-compose.yml"
+    repo_root = script_dir.parent
     container_claude_dir = "/home/claudeuser/.claude"
     # Profile detection
     profile = find_profile()
@@ -61,8 +52,8 @@ def main():
     # Docker can't overlay a bind mount on top of a dangling symlink, so we remove any
     # broken symlinks and create the real dirs now. The docker -v flags below will then
     # overlay them with the shared main_claude content.
+    default_claude = "/home/claudeuser/default-claude"
     if profile:
-        default_claude = "/home/claudeuser/default-claude"
         for name in ("ide", "ide-backups", ".alive_ports"):
             d = claude_dir / name
             if d.is_symlink():
@@ -102,10 +93,12 @@ def main():
     parser.add_argument("--live-log", dest="live_log", default=os.environ.get("CLAUDE_BOX_LIVE_LOG", ""))
     parsed, passthrough_args = parser.parse_known_args()
 
-    compose_opts = ["--build"] if parsed.rebuild else []
     if parsed.yolo:
         passthrough_args.append("--dangerously-skip-permissions")
     live_log_file = parsed.live_log
+
+    docker_dir = repo_root / "docker"
+    ensure_image("claude-secure:latest", docker_dir / "Dockerfile.claude", docker_dir, parsed.rebuild)
 
     # Git worktree detection
 
@@ -123,13 +116,7 @@ def main():
                 "depends on worktree metadata, and warn the user if you anticipate a failure."
             )
         else:
-            m = re.search(r"gitdir:\s*(.+)", git_file.read_text())
-            if m:
-                gitdir = m.group(1).strip()
-                main_repo = Path(re.sub(r"/.git/worktrees/.*", "", gitdir))
-                if (main_repo / ".git").is_dir():
-                    print(f"[claude] Worktree detected. Mounting main repo .git: {main_repo / '.git'}")
-                    extra_mounts += ["-v", f"{main_repo / '.git'}:{to_docker_path(main_repo / '.git')}"]
+            extra_mounts += main_git_mount(Path.cwd(), "claude")
 
     # Live log prompt
     if live_log_file:
@@ -163,34 +150,29 @@ def main():
     cwd = Path.cwd()
     host_cwd = str(cwd)
     container_cwd = to_docker_path(cwd)
-    env = os.environ.copy()
-    env["CLAUDE_DIR"] = str(claude_dir)
-    env["CLAUDE_CONFIG_DIR"] = str(container_claude_dir)
+    env_args = ["-e", f"CLAUDE_CONFIG_DIR={container_claude_dir}"]
+    for var in ("CLAUDE_CODE_SSE_PORT", "ENABLE_IDE_INTEGRATION"):
+        if os.environ.get(var):
+            env_args += ["-e", var]
     if profile:
-        env["DEFAULT_CLAUDE_PATH"] = "/home/claudeuser/default-claude"
-    else:
-        env.pop("DEFAULT_CLAUDE_PATH", None)
+        env_args += ["-e", f"DEFAULT_CLAUDE_PATH={default_claude}"]
 
+    tty_args = ["-t"] if sys.stdin.isatty() else []
     initial_prompt_args = ["\n".join(initial_prompt)] if initial_prompt else []
     cmd = [
-        "docker", "compose",
-        "-f", str(compose_file),
-        "run", "--rm",
-        *compose_opts,
+        "docker", "run", "--rm", "-i", *tty_args,
         *extra_docker_args,
+        *env_args,
+        "-v", f"{claude_dir}:{container_claude_dir}",
         "-v", f"{host_cwd}:{container_cwd}",
         "-w", container_cwd,
         *extra_mounts,
-        "claude",
+        "claude-secure:latest",
         *initial_prompt_args,
         *passthrough_args,
     ]
 
-    if platform.system() == "Windows":
-        result = subprocess.run(cmd, env=env)
-        sys.exit(result.returncode)
-    else:
-        os.execvpe(cmd[0], cmd, env)
+    run_or_exec(cmd)
 
 
 if __name__ == "__main__":

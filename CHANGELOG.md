@@ -6,30 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [0.5.0] - 2026-07-05
+
+### Added
+
+- **Codex CLI runner** — new `codex` command (`bin/codex`, `bin/codex.bat`, `bin/codex.ps1` wrapping `bin/codex.py`) runs OpenAI's Codex CLI inside its own container, mirroring the claude wrapper: only the current directory is mounted, Codex state persists via host `~/.codex` (override with `CODEX_BOX_DIR`), and `OPENAI_*` credentials are forwarded only when set.
+- **Codex image** — `docker/Dockerfile.codex`, based on Ubuntu 24.04 with Node.js 24 LTS, Python 3, Git, and common build tooling. `codexuser` takes UID 1000 (the stock `ubuntu` user is removed) so files written to mounted volumes match the typical host user on Linux.
+- **Codex flags** — `--yolo` maps to Codex's `--dangerously-bypass-approvals-and-sandbox`; `--rebuild` forces an image rebuild (the image is otherwise auto-built on first run).
+- **Codex worktree caution on Windows** — the launcher prints the same worktree warning as claude, and in interactive sessions injects a cautionary note into Codex's context (skipped for subcommand invocations like `codex exec`, where a positional prompt would break the command).
+
+### Changed
+
+- **Launchers invoke `docker` directly** — `docker-compose.yml` removed; both `bin/claude.py` and `bin/codex.py` run their containers with plain `docker run` and pass the env vars and volume mounts themselves. Each launcher is fully standalone, so unset variables belonging to one tool can no longer fail another.
+- **Images auto-build on first run** — if the required image doesn't exist locally, the launcher builds it before starting, so a fresh clone works without a manual build step. `--rebuild` still forces a rebuild.
+- **Docker assets moved to `docker/`** — `Dockerfile` renamed to `docker/Dockerfile.claude`; `entrypoint.py` and `global_python_requirements.txt` moved alongside it. The build context is now the `docker/` directory, keeping the repo root clean.
+- **Shared launcher helpers extracted to `bin/box_common.py`** — path conversion, image build/auto-build, worktree `.git` mounting, and the exec/run tail now live in one module imported by the launchers instead of being duplicated. Worktree resolution is also more robust: it now handles relative `gitdir:` paths in the `.git` file.
+
+### Fixed
+
+- **socat output leaking into the terminal** — `socat`'s `stdout` is now redirected to `socat.log`, and the entrypoint no longer prints socat startup messages when `CLAUDE_CODE_SSE_PORT` is not set.
+- **`bin/claude` line endings on Windows** — `.gitattributes` now forces LF for `bin/claude` (replacing the stale `entrypoint.sh` entry), so the launcher is not broken by CRLF checkouts.
+
+## [0.4.0] - 2026-05-20
 
 ### Added
 
 - **`--yolo` flag** — alias for `--dangerously-skip-permissions`, passed through to Claude.
-- **PowerShell launchers** — `bin/claude.ps1` and `bin/claude-yolo.ps1` added for Windows PowerShell support, mirroring the existing `.bat` wrappers.
-- **Windows CRLF fix** — added `.gitattributes` forcing LF line endings for all `.sh` files, and a `sed` strip in the Dockerfile, to prevent `entrypoint.sh` from failing on Linux when checked out on Windows.
+- **PowerShell launcher** — `bin/claude.ps1` added for Windows PowerShell support, mirroring the existing `.bat` wrapper.
+- **`.gitattributes` configuration** — added `.gitattributes` to force LF line endings for shell files, preventing execution failures when cloned or checked out on Windows.
+- **Session-aware live log filenames** — `--live-log` paths may include a `SESSION_ID` placeholder, replaced with the actual Claude session ID at startup (detected from the most recent `.jsonl` in `~/.claude/projects/<project-key>/`). If the placeholder is missing it is inserted before the file extension automatically (e.g. `chat.md` → `chat-SESSION_ID.md`), with a timestamp fallback when the session ID cannot be detected.
+
+### Changed
+
+- **Host-side launcher migrated to Python** — Moved primary launcher logic from shell/batch scripts to a cross-platform Python implementation (`bin/claude.py`), using thin platform-specific wrappers (`bin/claude`, `bin/claude.bat`, `bin/claude.ps1`).
+- **In-container entrypoint migrated to Python** — Completely rewrote the container startup logic and lock file guardian from Bash (`entrypoint.sh`) to Python (`entrypoint.py`), eliminating shell/CRLF compatibility issues on Windows and simplifying user process spawning.
+- **Arg parsing migrated to `argparse`** — replaced the manual `while` loop with `argparse.parse_known_args` in the launcher; unknown args are passed through to Claude unchanged.
+- **Live log skips setup exchange** — the initial logging-setup message and Claude's response to it are no longer written to the log file; logging starts from the first real user message.
+- **Live log is silent** — Claude no longer mentions or acknowledges the logging behavior in its responses.
 
 ### Removed
 
 - **`claude-yolo` wrappers** — `bin/claude-yolo`, `bin/claude-yolo.bat`, and `bin/claude-yolo.ps1` removed. Use `claude --yolo` instead.
+- **`entrypoint.sh`** — Deleted in favor of the new Python-based `entrypoint.py`.
+- **Dockerfile `sed` strip** — Removed the `sed -i` line-ending strip in the Dockerfile as it is no longer required for the Python entrypoint.
 
 ### Known limitations
 
 - **Git worktrees on Windows are unsupported** — the `.git` file in a worktree stores a Windows-format path that Linux git inside the container cannot resolve. The launcher prints a warning at startup and injects a note into Claude's context so it stays cautious about git operations. Non-worktree repos work fine on Windows.
-- **Session ID in live log filename** — `--live-log` paths can now include `SESSION_ID` as a placeholder; Claude detects its session ID at startup by finding the most recently modified `.jsonl` in `~/.claude/projects/<project-key>/` and substitutes it into the filename.
-- **Automatic `SESSION_ID` injection** — if the `--live-log` path does not contain `SESSION_ID`, Python inserts it before the file extension automatically (e.g. `chat.md` → `chat-SESSION_ID.md`).
-- **Timestamp fallback for session ID** — if the project-key lookup fails, a Python-generated timestamp (`YYYYMMDD_HHMMSS`) is embedded in the prompt as a fallback session ID.
-
-### Changed
-
-- **Arg parsing migrated to `argparse`** — replaced the manual `while` loop with `argparse.parse_known_args`; unknown args are still passed through to Claude unchanged.
-- **Live log skips setup exchange** — the initial logging-setup message and Claude's response to it are no longer written to the log file; logging starts from the first real user message.
-- **Live log is silent** — Claude no longer mentions or acknowledges the logging behavior in its responses.
 
 ---
 
