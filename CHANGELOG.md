@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.6.0] - 2026-07-19
+
+### Added
+
+- **MCP support** — MCP servers now work inside the box (see the readme's MCP section for the full support matrix):
+  - **stdio servers run in-container** — Node.js 24 LTS (via nvm) and `uv`/`uvx` are baked into the images, so `npx -y ...` / `uvx ...` MCP servers spawn inside the sandbox.
+  - **Host-local HTTP/SSE servers auto-forward** — the launcher scans MCP configs (`.claude.json` user/local scope and project `.mcp.json`) for `http://localhost:<port>` URLs and forwards those ports to the host via socat, so configs work verbatim in-container. Extra ports via the repeatable `--mcp-port` flag or `CLAUDE_BOX_MCP_PORTS` env var.
+  - **Host-path warnings** — the launcher warns at startup when an MCP stdio command references a path that only exists on the host (e.g. `/Users/...`, `C:\...`).
+- **Shared base image** — new `docker/Dockerfile.base` (`box-base:latest`, Ubuntu 24.04) underlies both the claude and codex images; `ensure_image()` builds it automatically before either child image.
+- **Box-aware Claude** — a managed-policy memory file (`docker/box-claude.md` → `/etc/claude-code/CLAUDE.md` in the image) tells Claude it's in claude-box and how to handle MCP servers, sudo, and runtime installs. Invisible to host-side Claude sessions sharing the same config dir.
+- **Passwordless sudo in the container** — the container user can `apt-get install` system deps at runtime; nvm and `uv python install` cover alternate Node/Python versions user-space.
+
+### Changed
+
+- **Claude image rebased** from `python:3.12-slim-bookworm` to the shared Ubuntu 24.04 `box-base` — full apt ecosystem and build tooling for general-purpose work. The first `--rebuild` after updating is a full multi-minute build.
+- **Single container user `boxuser`** (UID 1000) replaces `claudeuser`/`codexuser` in both images; container-side paths are now `/home/boxuser/.claude` and `/home/boxuser/.codex`. Host-side state carries over unchanged.
+
+### Removed
+
+- **`global_python_requirements.txt`** — baked Python tooling was unused; tools install at runtime instead of bloating every image build.
+- **docker-based MCP servers inside the box (rejected by design)** — mounting the Docker socket would be root-equivalent on the host and defeat the sandbox. Run docker-packaged MCP servers on the host behind an HTTP port instead (readme, MCP section).
+
+### Fixed
+
+- **`codex` launcher crash** — `bin/codex.py` used `sys.stdin.isatty()` without importing `sys`, raising `NameError` on every run.
+
+### Known limitations
+
+- **In-container MCP OAuth** — the auth callback port isn't published, so browser-based MCP authentication can't complete inside the box. Run the one-time auth from a host-side session with the same `CLAUDE_CONFIG_DIR`; tokens persist via the mount.
+
 ## [0.5.0] - 2026-07-05
 
 ### Added
