@@ -8,11 +8,6 @@ RUN apt-get update && apt-get install -y \
     socat \
     && rm -rf /var/lib/apt/lists/*
 
-# Install global Python requirements
-COPY global_python_requirements.txt /tmp/global_python_requirements.txt
-RUN pip install --no-cache-dir -r /tmp/global_python_requirements.txt \
- && if command -v graphify > /dev/null 2>&1; then graphify install; fi
-
 RUN useradd -m claudeuser
 
 # Install Claude Code as claudeuser so it installs to the correct user directory

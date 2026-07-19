@@ -30,7 +30,7 @@ export PATH="path/to/claude-box/bin:$PATH"
 
 ### 2. Build the container
 
-The Docker image is built automatically the first time you run `claude`. To force a rebuild later (e.g. after changing `docker/Dockerfile.claude` or `docker/global_python_requirements.txt`):
+The Docker image is built automatically the first time you run `claude`. To force a rebuild later (e.g. after changing `docker/Dockerfile.claude`):
 
 ```zsh
 claude --rebuild
