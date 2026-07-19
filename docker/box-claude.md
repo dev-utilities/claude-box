@@ -20,6 +20,12 @@ reaches the host.
   isn't published). Tell the user to run the one-time auth from a host-side session
   with the same config dir; tokens persist via the mount.
 
+## Git
+
+Never commit without asking the user first. The only exception is when the user has
+explicitly said, in this session, to commit without asking — a one-off "commit this"
+authorizes exactly that commit, not future ones.
+
 ## System packages
 
 You have passwordless sudo: `sudo apt-get install ...` works for system deps. Use nvm
