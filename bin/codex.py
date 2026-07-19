@@ -4,6 +4,7 @@
 import argparse
 import os
 import platform
+import sys
 from pathlib import Path
 
 from box_common import ensure_image, main_git_mount, run_or_exec, to_docker_path
