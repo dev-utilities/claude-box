@@ -67,6 +67,25 @@ def main():
     else:
         print("[entrypoint] Skipping socat (CLAUDE_CODE_SSE_PORT not set)")
 
+    # Forward host-local MCP server ports so localhost:<port> URLs work in-container
+    mcp_ports = os.environ.get("CLAUDE_BOX_MCP_PORTS", "")
+    if mcp_ports:
+        mcp_log_path = config_dir / "mcp-socat.log"
+        with open(mcp_log_path, "a") as mcp_log:
+            for port in mcp_ports.split(","):
+                port = port.strip()
+                if not port.isdigit():
+                    continue
+                subprocess.Popen(
+                    ["socat",
+                     f"TCP-LISTEN:{port},fork,reuseaddr",
+                     f"TCP:host.docker.internal:{port}"],
+                    stdout=mcp_log,
+                    stderr=mcp_log,
+                )
+                print(f"[entrypoint] MCP forward: localhost:{port} -> host:{port}")
+        print(f"[entrypoint] MCP socat log: {mcp_log_path}")
+
     # Start guard as detached subprocess — survives os.execvp below
     guard_log_path = shared_dir / "guard.log"
     guard_args = [sys.executable, __file__, "--guard", str(shared_dir)]

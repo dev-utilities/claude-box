@@ -1,26 +1,13 @@
-# Python 3.12.13 (latest stable as of 2026-03-03) on Debian 12 Bookworm slim
-FROM python:3.12.13-slim-bookworm
+# Claude Code on the shared box-base (Ubuntu 24.04 + node/nvm + uv + sudo).
+# box-base is built automatically by the launcher before this image.
+FROM box-base:latest
 
-RUN apt-get update && apt-get install -y \
-    curl \
-    git \
-    ca-certificates \
-    socat \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN useradd -m claudeuser
-
-# Install Claude Code as claudeuser so it installs to the correct user directory
-USER claudeuser
-ENV HOME=/home/claudeuser
-ENV PATH="/home/claudeuser/.local/bin:/usr/local/bin/:${PATH}"
+# Install Claude Code as boxuser so it lands in ~/.local/bin (already on PATH)
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-USER root
-COPY entrypoint.py /home/claudeuser/entrypoint.py
-# RUN chmod +x /home/claudeuser/entrypoint.py
+COPY entrypoint.py /home/boxuser/entrypoint.py
+# Managed-policy memory: loaded in every session, invisible to host-side
+# Claude instances sharing the same CLAUDE_CONFIG_DIR.
+COPY box-claude.md /etc/claude-code/CLAUDE.md
 
-WORKDIR /workspace
-
-USER claudeuser
-ENTRYPOINT ["python", "/home/claudeuser/entrypoint.py"]
+ENTRYPOINT ["python3", "/home/boxuser/entrypoint.py"]

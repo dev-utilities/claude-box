@@ -10,7 +10,14 @@ import sys
 import tempfile
 from pathlib import Path
 
-from box_common import ensure_image, main_git_mount, run_or_exec, to_docker_path
+from box_common import (
+    ensure_image,
+    main_git_mount,
+    parse_ports,
+    run_or_exec,
+    scan_mcp_configs,
+    to_docker_path,
+)
 
 
 def find_profile() -> str:
@@ -38,7 +45,7 @@ def is_port_alive(port: int) -> bool:
 def main():
     script_dir = Path(__file__).parent
     repo_root = script_dir.parent
-    container_claude_dir = "/home/claudeuser/.claude"
+    container_claude_dir = "/home/boxuser/.claude"
     # Profile detection
     profile = find_profile()
     suffix = f"-{profile}" if profile else ""
@@ -52,7 +59,7 @@ def main():
     # Docker can't overlay a bind mount on top of a dangling symlink, so we remove any
     # broken symlinks and create the real dirs now. The docker -v flags below will then
     # overlay them with the shared main_claude content.
-    default_claude = "/home/claudeuser/default-claude"
+    default_claude = "/home/boxuser/default-claude"
     if profile:
         for name in ("ide", "ide-backups", ".alive_ports"):
             d = claude_dir / name
@@ -91,6 +98,7 @@ def main():
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--yolo", action="store_true")
     parser.add_argument("--live-log", dest="live_log", default=os.environ.get("CLAUDE_BOX_LIVE_LOG", ""))
+    parser.add_argument("--mcp-port", dest="mcp_ports", action="append", default=[])
     parsed, passthrough_args = parser.parse_known_args()
 
     if parsed.yolo:
@@ -154,6 +162,18 @@ def main():
     for var in ("CLAUDE_CODE_SSE_PORT", "ENABLE_IDE_INTEGRATION"):
         if os.environ.get(var):
             env_args += ["-e", var]
+
+    # MCP: forward host-local HTTP/SSE server ports into the container (readme, MCP section)
+    mcp_ports = set(scan_mcp_configs(claude_dir, cwd, "claude"))
+    mcp_ports.update(parse_ports(os.environ.get("CLAUDE_BOX_MCP_PORTS", ""), *parsed.mcp_ports))
+    sse_port = os.environ.get("CLAUDE_CODE_SSE_PORT", "")
+    if sse_port.isdigit() and int(sse_port) in mcp_ports:
+        print(f"[claude] ⚠️  MCP port {sse_port} collides with CLAUDE_CODE_SSE_PORT — skipping it")
+        mcp_ports.discard(int(sse_port))
+    if mcp_ports:
+        ports_str = ",".join(str(p) for p in sorted(mcp_ports))
+        env_args += ["-e", f"CLAUDE_BOX_MCP_PORTS={ports_str}"]
+        print(f"[claude] MCP port forwards: {ports_str}")
     if profile:
         env_args += ["-e", f"DEFAULT_CLAUDE_PATH={default_claude}"]
 

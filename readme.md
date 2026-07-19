@@ -55,9 +55,10 @@ To manually connect Claude to PyCharm, run `/ide`.
 
 | Flag | Description |
 |---|---|
-| `--rebuild` | Rebuild the Docker image before starting |
+| `--rebuild` | Rebuild the Docker images (shared base + claude) before starting |
 | `--yolo` | Alias for `--dangerously-skip-permissions` — skips all permission prompts |
 | `--live-log <file>` | Log every exchange to a markdown file during the session |
+| `--mcp-port <ports>` | Extra host ports to forward for MCP servers (repeatable, comma-separated) |
 
 ### Live Log
 
@@ -81,9 +82,48 @@ The flag takes precedence over the env var if both are set.
 
 ---
 
+## MCP Support
+
+MCP config needs no special handling — user/local scope (`.claude.json` inside the
+mounted config dir), project scope (`.mcp.json` in your repo), and Codex's
+`config.toml` all reach the container through the existing mounts.
+
+| Server type | Works? | How |
+|---|---|---|
+| Remote HTTP/SSE (internet URL) | ✅ | Plain outbound HTTPS, nothing to do |
+| stdio via `npx` / `uvx` | ✅ | Node (nvm) and uv are preinstalled — servers run *inside* the sandbox |
+| Host-local HTTP/SSE (`http://localhost:<port>`) | ✅ | Ports are detected in your MCP config at launch and auto-forwarded to the host; add extra ports with `--mcp-port` or `CLAUDE_BOX_MCP_PORTS` |
+| stdio with host paths (`/Users/...`, `C:\...`) | ❌ | Won't exist in the container — the launcher warns at startup. Run it in-container or bridge it (below) |
+| Docker-packaged servers | ❌ in-box | No docker inside the box (mounting the docker socket would defeat the sandbox). Run them on the **host** behind a port instead — see below |
+
+**Bridging a host-only server to the box** — run it on a host port, the launcher
+forwards it automatically on the next start:
+
+```zsh
+# Any stdio command (including docker run) exposed as streamable HTTP on :8931
+npx -y supergateway --stdio "docker run -i --rm mcp/foo" --port 8931
+
+# then, inside the box:
+claude mcp add host-thing --transport http http://localhost:8931/mcp
+```
+
+Alternatives: Docker Desktop's **MCP Toolkit** gateway (one port for all catalog
+servers), or the server's own HTTP mode (`docker run -p 8931:8931 some/mcp --transport http --port 8931`).
+
+**OAuth-authenticated remote servers:** the in-container auth callback can't reach
+your browser. Run the one-time authentication from a host-side `claude` session using
+the same `CLAUDE_CONFIG_DIR` — tokens persist via the mount and the box uses them
+silently.
+
+**Runtime flexibility:** the container user has passwordless sudo for `apt-get`
+system deps; nvm covers alternate Node versions and `uv python install` alternate
+Pythons — no rebuild needed.
+
+---
+
 ## Codex CLI — Containerized
 
-This repo also includes a Codex CLI runner that uses the same Docker wrapper style, without IDE integration. The Codex image is based on Ubuntu 24.04 and includes Node.js 24 LTS, Python 3, Git, and common build tooling.
+This repo also includes a Codex CLI runner that uses the same Docker wrapper style, without IDE integration. Both the Claude and Codex images build on a shared `box-base` image (Ubuntu 24.04 with Node.js 24 LTS via nvm, uv, Python 3, Git, and common build tooling).
 
 The image is built automatically the first time you run `codex`. To force a rebuild later (e.g. after changing `docker/Dockerfile.codex`), pass `--rebuild`. Run Codex from any project directory:
 
@@ -92,7 +132,7 @@ codex
 codex exec "summarize this repo"
 ```
 
-The wrapper mounts your project and persists Codex state by mounting host `~/.codex` to `/home/codexuser/.codex` in the container. To isolate it from your normal Codex config, set `CODEX_BOX_DIR`:
+The wrapper mounts your project and persists Codex state by mounting host `~/.codex` to `/home/boxuser/.codex` in the container. To isolate it from your normal Codex config, set `CODEX_BOX_DIR`:
 
 ```zsh
 CODEX_BOX_DIR=~/.codex-box codex

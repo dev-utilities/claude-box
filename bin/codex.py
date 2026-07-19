@@ -13,7 +13,7 @@ from box_common import ensure_image, main_git_mount, run_or_exec, to_docker_path
 def main():
     script_dir = Path(__file__).parent
     repo_root = script_dir.parent
-    container_codex_home = "/home/codexuser/.codex"
+    container_codex_home = "/home/boxuser/.codex"
     codex_dir = Path(os.environ.get("CODEX_BOX_DIR", str(Path.home() / ".codex")))
     codex_dir.mkdir(parents=True, exist_ok=True)
 

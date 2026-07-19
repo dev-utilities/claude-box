@@ -1,0 +1,62 @@
+# Shared base for the claude and codex images: Ubuntu 24.04 with the runtimes
+# MCP stdio servers need before the agent can act (node via nvm, uv, python3),
+# plus passwordless sudo so runtime apt installs work and persist via the
+# per-workspace container commit.
+FROM ubuntu:24.04
+
+SHELL ["/bin/bash", "-lc"]
+
+ARG NVM_VERSION=v0.40.3
+ARG NODE_VERSION=24.15.0
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    gnupg \
+    less \
+    openssh-client \
+    pkg-config \
+    python-is-python3 \
+    python3 \
+    python3-pip \
+    python3-venv \
+    socat \
+    sudo \
+    unzip \
+    xz-utils \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ubuntu:24.04 ships a default 'ubuntu' user at UID 1000; remove it so
+# boxuser gets UID 1000 and mounted files match the typical host user.
+# boxuser runs unprivileged but can sudo for system deps at runtime.
+RUN userdel -r ubuntu && useradd -m -u 1000 boxuser \
+    && echo "boxuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/boxuser \
+    && chmod 0440 /etc/sudoers.d/boxuser
+
+USER boxuser
+ENV HOME=/home/boxuser
+ENV NODE_VERSION=${NODE_VERSION}
+ENV NVM_DIR=/home/boxuser/.nvm
+# Node must be on PATH without sourcing nvm.sh — MCP servers are spawned
+# non-interactively by the agent.
+ENV PATH="${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:/home/boxuser/.local/bin:${PATH}"
+
+RUN git clone --quiet --depth 1 --branch "$NVM_VERSION" https://github.com/nvm-sh/nvm.git "$NVM_DIR" \
+    && source "$NVM_DIR/nvm.sh" \
+    && nvm install "$NODE_VERSION" \
+    && nvm alias default "$NODE_VERSION" \
+    && nvm use default \
+    && nvm cache clear \
+    && node --version \
+    && npm --version
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && uv --version \
+    && uvx --version
+
+WORKDIR /workspace
