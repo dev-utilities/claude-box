@@ -142,6 +142,29 @@ The wrapper also supports `--yolo`, which maps to Codex's `--dangerously-bypass-
 
 ---
 
+## Command Code CLI — Containerized
+
+This repo also includes a runner for [Command Code](https://commandcode.ai), using the same Docker wrapper style as Claude and Codex. It builds on the shared `box-base` image and installs the CLI via `npm i -g command-code@latest`.
+
+The image is built automatically the first time you run `cmd`. To force a rebuild later (e.g. after changing `docker/Dockerfile.command-code`), pass `--rebuild`. Run it from any project directory:
+
+```zsh
+cmd
+cmd exec "summarize this repo"
+```
+
+> **Note:** `cmd` shadows the shell built-in of the same name on some systems (e.g. Windows `cmd.exe`). Make sure `claude-box/bin` is early enough in `$PATH`, or invoke it by full path if it doesn't resolve as expected.
+
+The wrapper mounts your project and persists Command Code state by mounting host `~/.commandcode` to `/home/boxuser/.commandcode` in the container. To isolate it from your normal config, set `COMMAND_CODE_BOX_DIR`:
+
+```zsh
+COMMAND_CODE_BOX_DIR=~/.commandcode-box cmd
+```
+
+Provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, `ZHIPU_API_KEY`, `QWEN_API_KEY`, `MINIMAX_API_KEY`) are forwarded into the container when set on the host.
+
+---
+
 ## Multi-Profile Support
 
 Claude Box supports multiple isolated Claude profiles, useful when working across different clients or projects that need separate credentials and settings.

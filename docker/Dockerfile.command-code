@@ -1,0 +1,8 @@
+# Command Code CLI on the shared box-base (Ubuntu 24.04 + node/nvm + uv + sudo).
+# box-base is built automatically by the launcher before this image.
+FROM box-base:latest
+
+RUN npm install -g command-code@latest \
+    && cmd --version
+
+ENTRYPOINT ["cmd"]

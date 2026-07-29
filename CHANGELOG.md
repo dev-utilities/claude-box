@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.7.0] - 2026-07-29
+
+### Added
+
+- **Command Code CLI — Containerized** — new `cmd` launcher (`bin/cmd`, `docker/Dockerfile.command-code`) runs [Command Code](https://commandcode.ai) inside Docker on the shared `box-base` image, following the same wrapper style as `claude` and `codex`. State persists via `~/.commandcode` (override with `COMMAND_CODE_BOX_DIR`); provider API keys are forwarded from the host when set.
+
+---
+
 ## [0.6.0] - 2026-07-19
 
 ### Added
