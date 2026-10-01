@@ -9,12 +9,14 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
 from box_common import (
     BOX_STATE_ROOT,
     box_lock,
+    cleanup_dangling_images,
     compute_hash,
     compute_name,
     container_needs_recreate,
@@ -228,21 +230,22 @@ def main():
         print(f"[claude] Cleaning {container_name} and {committed_image}...")
         subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
         subprocess.run(["docker", "rmi", committed_image], capture_output=True)
-        r = subprocess.run(
-            ["docker", "images", "-f", "dangling=true",
-             "-f", f"label=claude-box.workspace={cwd}", "-q"],
-            capture_output=True, text=True,
-        )
-        dangling_ids = [i for i in r.stdout.split() if i]
-        for img_id in dangling_ids:
-            subprocess.run(["docker", "rmi", img_id], capture_output=True)
-        if dangling_ids:
-            print(f"[claude] Removed {len(dangling_ids)} dangling image(s).")
+        removed = cleanup_dangling_images(str(cwd))
+        if removed:
+            print(f"[claude] Removed {removed} dangling image(s).")
         print("[claude] Done.")
         return
     if parsed.prune:
         _do_prune()
         return
+
+    # Best-effort, non-blocking, scoped to this workspace only: sweep any of its
+    # own dangling images left over from a prior commit/retag (e.g. a watcher
+    # that committed but crashed before its own cleanup ran). Fire-and-forget —
+    # correctness doesn't depend on it finishing before the session starts, and
+    # docker refuses to remove an image still in use, so it can't touch
+    # anything live.
+    threading.Thread(target=cleanup_dangling_images, args=(str(cwd),), daemon=True).start()
 
     docker_dir = repo_root / "docker"
     ensure_image("claude-secure:latest", docker_dir / "Dockerfile.claude", docker_dir, parsed.rebuild)

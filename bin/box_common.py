@@ -189,6 +189,29 @@ def image_id(image: str) -> str:
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
+def cleanup_dangling_images(workspace: str) -> int:
+    """Remove dangling (untagged) images labeled with this workspace.
+
+    Safe by construction: these images carry no tag, so they can never be the
+    current `claudebox-img-<hash>:latest` or base image, and `docker rmi` simply
+    (and silently) refuses to remove an image still referenced by any container.
+    This only reclaims genuinely orphaned layers — e.g. left behind by a watcher
+    that committed a retag but crashed before its own cleanup ran. Returns the
+    number of images actually removed.
+    """
+    r = subprocess.run(
+        ["docker", "images", "-f", "dangling=true",
+         "-f", f"label=claude-box.workspace={workspace}", "-q"],
+        capture_output=True, text=True,
+    )
+    removed = 0
+    for img_id in dict.fromkeys(r.stdout.split()):  # de-dup, preserve order
+        rr = subprocess.run(["docker", "rmi", img_id], capture_output=True)
+        if rr.returncode == 0:
+            removed += 1
+    return removed
+
+
 def container_state(name: str) -> str:
     """Return 'missing', 'stopped', or 'running'."""
     r = subprocess.run(

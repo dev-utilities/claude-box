@@ -225,6 +225,9 @@ to see what was installed and re-run those commands.
 
 Use `claude --clean` to wipe a workspace's container and committed image, or `claude
 --prune` to sweep up containers/images for workspaces that no longer exist on disk.
+Every normal launch also runs a silent, non-blocking cleanup of this workspace's own
+dangling (untagged, orphaned) images in the background — you shouldn't need to think
+about it.
 
 ---
 
