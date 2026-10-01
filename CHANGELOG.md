@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.8.0] - 2026-10-01
+
+### Added
+
+- **Persistent containers for `claude`** — the container now stays up across sessions instead of `--rm`-ing on exit. A supervisor entrypoint (`docker run -d --init`) keeps it alive; every session (first or subsequent) enters via `docker exec` with fresh args/prompt/env. The container is removed automatically once the last session exits.
+- **Automatic package persistence via `docker commit`** — after a runtime install (`apt`, `pip`, `npm`, `cargo`, etc.), Claude writes a dirty flag (see `docker/box-claude.md`); a host-side watcher commits the container to a per-workspace image (`claudebox-img-<hash>:latest`) within ~2s, so installed packages survive container recreation. An append-only `audit.jsonl` under `~/.claude-box/<hash>/` records every install as a manual recovery path.
+- **`--stop` / `--clean` / `--prune` flags** — `--stop` halts the container for the current folder+profile; `--clean` removes the container, its committed image, and any dangling predecessor images; `--prune` sweeps claude-box images/containers whose labeled workspace path no longer exists on disk.
+- Guard-owned port forwarding — all socat forwarding (IDE + MCP) now lives in the guard process, driven by a `ports` file the launcher writes before each exec. This lets the IDE port change or new MCP servers take effect without recreating the container.
+
+### Changed
+
+- **Breaking: `.claude/box-profile` lookup no longer walks upward.** It's checked only in the current working directory (like `.vscode`), not searched up to the filesystem root. If you relied on inheriting a parent directory's `box-profile`, copy the file into the subdirectory you run `claude` from.
+
+### Known limitations
+
+- A container killed without a prior commit (hard kill, `docker rm -f` mid-install) loses installs since the last commit — normally a window of a few seconds.
+- **Rebuilding the base image (`--rebuild`) discards all committed packages** — the committed image is keyed to the base image it was built from, so a rebuild starts fresh from `claude-secure:latest`. Use `audit.jsonl` to see what was installed and redo it.
+- Codex (`codex`) is unaffected by this change and remains `--rm` fire-and-forget.
+
+---
+
 ## [0.7.0] - 2026-07-29
 
 ### Added

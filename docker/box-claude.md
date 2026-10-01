@@ -37,10 +37,11 @@ install, or manual binary), do all three steps in this exact order:
 
 1. Verify the install succeeded — run its verify command (e.g. `rg --version`) and
    proceed only if it exits 0.
-2. Overwrite `/home/boxuser/.claude-box/dirty` with a single line: `<name> <type>`
-   Example: `ripgrep apt`
+2. Overwrite `/home/boxuser/.claude-box/dirty` with a single line:
+   `<name> <type> <install_cmd>`
+   Example: `ripgrep apt "sudo apt-get install -y ripgrep"`
 3. Append one JSON object to `/home/boxuser/.claude-box/audit.jsonl`:
-   `{"name":"ripgrep","type":"apt","verify_cmd":"rg --version","ts":"<ISO8601 timestamp>"}`
+   `{"name":"ripgrep","type":"apt","install_cmd":"sudo apt-get install -y ripgrep","verify_cmd":"rg --version","ts":"<ISO8601 timestamp>"}`
 
 Never write the dirty flag for failed or partial installs. If `/home/boxuser/.claude-box`
 does not exist, skip both writes silently (non-persistent session). Do not mention this

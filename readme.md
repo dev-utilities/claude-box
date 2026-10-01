@@ -59,6 +59,9 @@ To manually connect Claude to PyCharm, run `/ide`.
 | `--yolo` | Alias for `--dangerously-skip-permissions` — skips all permission prompts |
 | `--live-log <file>` | Log every exchange to a markdown file during the session |
 | `--mcp-port <ports>` | Extra host ports to forward for MCP servers (repeatable, comma-separated) |
+| `--stop` | Stop the running container for the current folder+profile |
+| `--clean` | Remove the container, its committed image, and any dangling predecessor images for the current folder+profile |
+| `--prune` | Remove claude-box images/containers whose labeled workspace no longer exists on disk |
 
 ### Live Log
 
@@ -175,7 +178,7 @@ Each profile gets its own config directory on the host: `~/.claude-<profile>`.
 
 The `claude` binary picks the profile in this order:
 1. `CLAUDE_BOX_PROFILE` environment variable (if already exported)
-2. `.claude/box-profile` file — searched from the current directory upward to the filesystem root (same as how `git` finds `.git`), so it works from any subdirectory within a project
+2. `.claude/box-profile` file in the **current working directory only** (like `.vscode` — no upward search). If you run `claude` from a subdirectory, put a `box-profile` file there too.
 
 A status line is always printed at startup so you know which profile is active.
 
@@ -197,6 +200,31 @@ Export `CLAUDE_BOX_PROFILE` before running `claude`:
 ```zsh
 CLAUDE_BOX_PROFILE=client-b claude
 ```
+
+---
+
+## Package Persistence
+
+The `claude` container stays running between sessions instead of being removed on
+exit — the first `claude` in a folder creates it, later ones attach via `docker exec`.
+It's removed automatically once the last session for that folder exits.
+
+Packages installed at runtime (`sudo apt-get install ...`, `pip install`, `npm install
+-g`, etc.) persist across that removal too: after a successful install, Claude writes
+a flag under `~/.claude-box/<hash>/`, and a background watcher commits the container
+to a per-workspace image within a couple of seconds. The next time the container is
+created, it starts from that image instead of the plain base — no reinstalling.
+
+An append-only `~/.claude-box/<hash>/audit.jsonl` logs every tracked install (name,
+install command, verify command, timestamp) as a human-readable record.
+
+**Limitation:** running `claude --rebuild` rebuilds the base image, which invalidates
+every workspace's committed image — installed packages are discarded and the
+container starts fresh from the new base. `audit.jsonl` is the recovery path: check it
+to see what was installed and re-run those commands.
+
+Use `claude --clean` to wipe a workspace's container and committed image, or `claude
+--prune` to sweep up containers/images for workspaces that no longer exist on disk.
 
 ---
 

@@ -282,6 +282,10 @@ def _try_commit(
     """Claim the dirty flag and commit the container image. No-op if another watcher claimed it first."""
     dirty = box_dir / "dirty"
     try:
+        entry = dirty.read_text().strip()
+    except FileNotFoundError:
+        return
+    try:
         dirty.unlink()  # atomic claim — raises FileNotFoundError if another watcher won
     except FileNotFoundError:
         return
@@ -293,6 +297,7 @@ def _try_commit(
         r = subprocess.run([
             "docker", "commit",
             "--pause=false",
+            "-m", entry or "claude-box: automatic commit",
             "-c", f"LABEL claude-box.base={base_id}",
             "-c", f"LABEL claude-box.workspace={workspace}",
             "-c", f"LABEL claude-box.profile={profile}",

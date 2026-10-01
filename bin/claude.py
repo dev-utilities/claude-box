@@ -69,6 +69,53 @@ def _wait_for_ports(box_dir: Path, requested: "set[str]") -> None:
     print("[claude] ⚠️  Guard did not acknowledge port forwards within 2s, proceeding anyway")
 
 
+def _ensure_container(
+    box_dir: Path,
+    container_name: str,
+    profile: str,
+    base_id: str,
+    host_cwd: str,
+    container_cwd: str,
+    container_claude_dir: str,
+    claude_dir: Path,
+    creation_env_args: "list[str]",
+    extra_docker_args: "list[str]",
+    extra_mounts: "list[str]",
+    start_image: str,
+) -> None:
+    """Make sure the named container exists and is running, recreating if stale."""
+    with box_lock(box_dir):
+        state = container_state(container_name)
+
+        if state != "missing" and container_needs_recreate(container_name, profile, base_id):
+            print("[claude] Container is stale (profile or base changed), recreating...")
+            subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+            state = "missing"
+
+        if state == "missing":
+            print(f"[claude] Creating container {container_name}...")
+            r = subprocess.run([
+                "docker", "run", "-d", "--init", "--name", container_name,
+                "--label", "claude-box=1",
+                "--label", f"claude-box.workspace={host_cwd}",
+                "--label", f"claude-box.profile={profile}",
+                "--label", f"claude-box.base={base_id}",
+                *extra_docker_args,
+                *creation_env_args,
+                "-v", f"{claude_dir}:{container_claude_dir}",
+                "-v", f"{host_cwd}:{container_cwd}",
+                "-v", f"{str(box_dir)}:/home/boxuser/.claude-box",
+                *extra_mounts,
+                start_image,
+            ])
+            if r.returncode != 0:
+                print("[claude] Failed to create container.", file=sys.stderr)
+                sys.exit(1)
+        elif state == "stopped":
+            print(f"[claude] Starting stopped container {container_name}...")
+            subprocess.run(["docker", "start", container_name], check=True)
+
+
 def _do_prune() -> None:
     print("[claude] Pruning stale claude-box images and containers...")
     pruned = 0
@@ -181,6 +228,16 @@ def main():
         print(f"[claude] Cleaning {container_name} and {committed_image}...")
         subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
         subprocess.run(["docker", "rmi", committed_image], capture_output=True)
+        r = subprocess.run(
+            ["docker", "images", "-f", "dangling=true",
+             "-f", f"label=claude-box.workspace={cwd}", "-q"],
+            capture_output=True, text=True,
+        )
+        dangling_ids = [i for i in r.stdout.split() if i]
+        for img_id in dangling_ids:
+            subprocess.run(["docker", "rmi", img_id], capture_output=True)
+        if dangling_ids:
+            print(f"[claude] Removed {len(dangling_ids)} dangling image(s).")
         print("[claude] Done.")
         return
     if parsed.prune:
@@ -281,41 +338,6 @@ def main():
         if os.environ.get(var):
             exec_env_args += ["-e", var]
 
-    # Ensure container is running
-    with box_lock(box_dir):
-        state = container_state(container_name)
-
-        if state != "missing" and container_needs_recreate(container_name, profile, base_id):
-            print(f"[claude] Container is stale (profile or base changed), recreating...")
-            subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
-            state = "missing"
-
-        if state == "missing":
-            print(f"[claude] Creating container {container_name}...")
-            r = subprocess.run([
-                "docker", "run", "-d", "--init", "--name", container_name,
-                "--label", "claude-box=1",
-                "--label", f"claude-box.workspace={host_cwd}",
-                "--label", f"claude-box.profile={profile}",
-                "--label", f"claude-box.base={base_id}",
-                *extra_docker_args,
-                *creation_env_args,
-                "-v", f"{claude_dir}:{container_claude_dir}",
-                "-v", f"{host_cwd}:{container_cwd}",
-                "-v", f"{str(box_dir)}:/home/boxuser/.claude-box",
-                *extra_mounts,
-                start_image,
-            ])
-            if r.returncode != 0:
-                print("[claude] Failed to create container.", file=sys.stderr)
-                sys.exit(1)
-        elif state == "stopped":
-            print(f"[claude] Starting stopped container {container_name}...")
-            subprocess.run(["docker", "start", container_name], check=True)
-
-    # Wait for guard to apply port forwards before exec-ing
-    _wait_for_ports(box_dir, {str(p) for p in all_ports})
-
     tty_args = ["-t"] if sys.stdin.isatty() else []
     initial_prompt_args = ["\n".join(initial_prompt)] if initial_prompt else []
 
@@ -329,9 +351,32 @@ def main():
         *passthrough_args,
     ]
 
-    finish = start_commit_watcher(box_dir, container_name, committed_image, base_id, host_cwd, profile)
-    rc = run_session(exec_cmd)
-    finish()
+    # Between the state check and the exec, another session's watcher may have
+    # removed this container (last-session teardown race). Retry a bounded
+    # number of times — but only when the container is actually gone/stopped
+    # afterward; otherwise rc is claude's own exit code and must be propagated
+    # as-is.
+    MAX_EXEC_ATTEMPTS = 3
+    rc = 1
+    for attempt in range(1, MAX_EXEC_ATTEMPTS + 1):
+        _ensure_container(
+            box_dir, container_name, profile, base_id, host_cwd, container_cwd,
+            container_claude_dir, claude_dir, creation_env_args, extra_docker_args,
+            extra_mounts, start_image,
+        )
+        _wait_for_ports(box_dir, {str(p) for p in all_ports})
+
+        finish = start_commit_watcher(box_dir, container_name, committed_image, base_id, host_cwd, profile)
+        rc = run_session(exec_cmd)
+        finish()
+
+        if rc == 0 or container_state(container_name) == "running":
+            break
+        if attempt < MAX_EXEC_ATTEMPTS:
+            print(f"[claude] Container disappeared mid-exec (attempt {attempt}/{MAX_EXEC_ATTEMPTS}), retrying...")
+    else:
+        print("[claude] Gave up after repeated container-exec races.", file=sys.stderr)
+
     sys.exit(rc)
 
 
