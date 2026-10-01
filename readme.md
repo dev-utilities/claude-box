@@ -58,7 +58,7 @@ To manually connect Claude to PyCharm, run `/ide`.
 | `--rebuild` | Rebuild the Docker images (shared base + claude) before starting |
 | `--yolo` | Alias for `--dangerously-skip-permissions` — skips all permission prompts |
 | `--live-log <file>` | Log every exchange to a markdown file during the session |
-| `--mcp-port <ports>` | Extra host ports to forward for MCP servers (repeatable, comma-separated) |
+| `--forward-port <ports>` | Forward extra host ports into the container — any host service, not just MCP (repeatable, comma-separated) |
 | `--stop` | Stop the running container for the current folder+profile |
 | `--clean` | Remove the container, its committed image, and any dangling predecessor images for the current folder+profile |
 | `--prune` | Remove claude-box images/containers whose labeled workspace no longer exists on disk |
@@ -95,7 +95,7 @@ mounted config dir), project scope (`.mcp.json` in your repo), and Codex's
 |---|---|---|
 | Remote HTTP/SSE (internet URL) | ✅ | Plain outbound HTTPS, nothing to do |
 | stdio via `npx` / `uvx` | ✅ | Node (nvm) and uv are preinstalled — servers run *inside* the sandbox |
-| Host-local HTTP/SSE (`http://localhost:<port>`) | ✅ | Ports are detected in your MCP config at launch and auto-forwarded to the host; add extra ports with `--mcp-port` or `CLAUDE_BOX_MCP_PORTS` |
+| Host-local HTTP/SSE (`http://localhost:<port>`) | ✅ | Ports are detected in your MCP config at launch and auto-forwarded to the host; add extra ports with `--forward-port` or `CLAUDE_BOX_FORWARD_PORTS` |
 | stdio with host paths (`/Users/...`, `C:\...`) | ❌ | Won't exist in the container — the launcher warns at startup. Run it in-container or bridge it (below) |
 | Docker-packaged servers | ❌ in-box | No docker inside the box (mounting the docker socket would defeat the sandbox). Run them on the **host** behind a port instead — see below |
 
@@ -121,6 +121,14 @@ silently.
 **Runtime flexibility:** the container user has passwordless sudo for `apt-get`
 system deps; nvm covers alternate Node versions and `uv python install` alternate
 Pythons — no rebuild needed.
+
+**`--forward-port` isn't MCP-specific** — it forwards any `localhost:<port>` host
+service into the container the same way, so it's also the way to reach, say, a local
+dev server or database running on your machine:
+
+```zsh
+claude --forward-port 5432,3000
+```
 
 ---
 

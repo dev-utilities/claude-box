@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 BASE_IMAGE = "box-base:latest"
@@ -268,7 +269,15 @@ def box_lock(box_dir: Path):
 
 
 def _has_claude_sessions(name: str) -> bool:
-    """True if the container has at least one running claude process (via docker top)."""
+    """True if the container has at least one running claude process (via docker top).
+
+    Secondary signal only — see the session-marker mechanism below, which is the
+    authoritative one. `docker top`'s CMD column depends on the host's `ps`
+    (Docker Desktop's VM may use a minimal `ps` with different columns, and the
+    in-container process name depends on exactly how the `claude` binary execs),
+    so a false negative here must never by itself cause a live session's
+    container to be removed.
+    """
     r = subprocess.run(["docker", "top", name], capture_output=True, text=True)
     if r.returncode != 0:
         return False
@@ -279,10 +288,13 @@ def _has_claude_sessions(name: str) -> bool:
     try:
         cmd_idx = header.index("CMD")
     except ValueError:
-        cmd_idx = len(header) - 1
+        try:
+            cmd_idx = header.index("COMMAND")
+        except ValueError:
+            cmd_idx = len(header) - 1
     for line in lines[1:]:
-        # CMD is the full command line (executable + args) and may itself
-        # contain spaces, so it must stay unsplit — take only its first
+        # CMD/COMMAND is the full command line (executable + args) and may
+        # itself contain spaces, so it must stay unsplit — take only its first
         # token (the executable) to compare, not the last token of the row.
         parts = line.split(None, cmd_idx)
         if len(parts) <= cmd_idx:
@@ -292,6 +304,68 @@ def _has_claude_sessions(name: str) -> bool:
         if exe == "claude" or exe.endswith("/claude"):
             return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Session bookkeeping — host-side, independent of in-container process names.
+#
+# Each active `docker exec` session is tracked by a marker file named
+# "<launcher-pid>-<random>" under box_dir/sessions/. This is the authoritative
+# "is anyone still attached" signal: it doesn't depend on what `docker top`
+# reports or on how the `claude` binary names its own process, which is what
+# let a single session's exit wrongly tear down a container other sessions
+# were still attached to. A launcher that crashes without running its own
+# cleanup leaves a stale marker behind; _active_session_count garbage-collects
+# those by checking whether the embedded PID is still alive (or, on Windows,
+# whether the marker is older than _STALE_SESSION_SECS).
+# ---------------------------------------------------------------------------
+
+_STALE_SESSION_SECS = 600  # Windows-only fallback — see _is_session_marker_alive
+
+
+def register_session(box_dir: Path) -> Path:
+    """Create and return this session's marker file."""
+    sessions_dir = box_dir / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    marker = sessions_dir / f"{os.getpid()}-{os.urandom(4).hex()}"
+    marker.touch()
+    return marker
+
+
+def _is_session_marker_alive(marker: Path) -> bool:
+    try:
+        pid = int(marker.name.split("-", 1)[0])
+    except (ValueError, IndexError):
+        return False
+    if platform.system() == "Windows":
+        # No reliable zero-signal process check on Windows; age it out instead.
+        try:
+            return (time.time() - marker.stat().st_mtime) < _STALE_SESSION_SECS
+        except FileNotFoundError:
+            return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # process exists, just owned by someone else
+    except OSError:
+        return False
+    return True
+
+
+def _active_session_count(box_dir: Path) -> int:
+    """Count live sessions, garbage-collecting markers left by crashed launchers."""
+    sessions_dir = box_dir / "sessions"
+    if not sessions_dir.is_dir():
+        return 0
+    count = 0
+    for marker in sessions_dir.iterdir():
+        if _is_session_marker_alive(marker):
+            count += 1
+        else:
+            marker.unlink(missing_ok=True)
+    return count
 
 
 def _try_commit(
@@ -332,11 +406,22 @@ def _try_commit(
         subprocess.run(["docker", "rmi", old_id], capture_output=True)
 
 
-def _maybe_remove_container(name: str, box_dir: Path) -> None:
-    """Remove the container if no claude sessions remain — called by last watcher out."""
+def _maybe_remove_container(name: str, box_dir: Path, session_marker: Path) -> None:
+    """Remove the container if no sessions remain — called by the last watcher out.
+
+    This session's own marker is removed first so it doesn't count itself; the
+    host-side marker count is authoritative, `_has_claude_sessions` a secondary
+    check ANDed in on top — both must report empty before the (shared) container
+    is torn down, so a blind spot in either one alone can't cause a live
+    session's container to be removed out from under it.
+    """
     with box_lock(box_dir):
-        if not _has_claude_sessions(name):
-            subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+        session_marker.unlink(missing_ok=True)
+        if _active_session_count(box_dir) > 0:
+            return
+        if _has_claude_sessions(name):
+            return
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
 
 
 def _commit_watcher(
@@ -347,13 +432,14 @@ def _commit_watcher(
     workspace: str,
     profile: str,
     stop_event: threading.Event,
+    session_marker: Path,
 ) -> None:
     while not stop_event.is_set():
         _try_commit(box_dir, name, committed_image, base_id, workspace, profile)
         stop_event.wait(timeout=2)
     # Final sweep after session ends
     _try_commit(box_dir, name, committed_image, base_id, workspace, profile)
-    _maybe_remove_container(name, box_dir)
+    _maybe_remove_container(name, box_dir, session_marker)
 
 
 def start_commit_watcher(
@@ -363,12 +449,13 @@ def start_commit_watcher(
     base_id: str,
     workspace: str,
     profile: str,
+    session_marker: Path,
 ) -> "callable":
     """Start the background commit watcher. Returns a finish() callable to block until teardown completes."""
     stop_event = threading.Event()
     t = threading.Thread(
         target=_commit_watcher,
-        args=(box_dir, name, committed_image, base_id, workspace, profile, stop_event),
+        args=(box_dir, name, committed_image, base_id, workspace, profile, stop_event, session_marker),
         daemon=True,
     )
     t.start()

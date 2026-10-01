@@ -19,6 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 
 - **Breaking: `.claude/box-profile` lookup no longer walks upward.** It's checked only in the current working directory (like `.vscode`), not searched up to the filesystem root. If you relied on inheriting a parent directory's `box-profile`, copy the file into the subdirectory you run `claude` from.
+- **Breaking: `--mcp-port` / `CLAUDE_BOX_MCP_PORTS` renamed to `--forward-port` / `CLAUDE_BOX_FORWARD_PORTS`.** The mechanism was never MCP-specific — it forwards any host port into the container — and the old name undersold that. Update any scripts/profile exports using the old flag or env var.
+
+### Fixed
+
+- **Exiting one session could kill every other session sharing the same container.** Last-session detection relied on parsing `docker top` output for a process named `claude`, which could miss a live session depending on the Docker backend's `ps` format or how the in-container process actually names itself — causing a false "no sessions left" and a `docker rm -f` out from under everyone else still attached. Replaced with a host-side marker file per active session (tracked independently of anything inside the container); `docker top` is now only a secondary, ANDed check, not the deciding one.
 
 ### Known limitations
 

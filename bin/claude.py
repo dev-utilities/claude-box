@@ -25,6 +25,7 @@ from box_common import (
     image_id,
     main_git_mount,
     parse_ports,
+    register_session,
     run_session,
     scan_mcp_configs,
     start_commit_watcher,
@@ -84,8 +85,14 @@ def _ensure_container(
     extra_docker_args: "list[str]",
     extra_mounts: "list[str]",
     start_image: str,
-) -> None:
-    """Make sure the named container exists and is running, recreating if stale."""
+) -> Path:
+    """Make sure the named container exists and is running, recreating if stale.
+
+    Registers this session's marker in the same locked section — the same lock
+    `_maybe_remove_container` takes before deciding to tear the container down,
+    so a session can't be newly attaching while another, exiting session is
+    mid-decision about whether it's the last one out.
+    """
     with box_lock(box_dir):
         state = container_state(container_name)
 
@@ -116,6 +123,8 @@ def _ensure_container(
         elif state == "stopped":
             print(f"[claude] Starting stopped container {container_name}...")
             subprocess.run(["docker", "start", container_name], check=True)
+
+        return register_session(box_dir)
 
 
 def _do_prune() -> None:
@@ -205,7 +214,7 @@ def main():
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--yolo", action="store_true")
     parser.add_argument("--live-log", dest="live_log", default=os.environ.get("CLAUDE_BOX_LIVE_LOG", ""))
-    parser.add_argument("--mcp-port", dest="mcp_ports", action="append", default=[])
+    parser.add_argument("--forward-port", dest="forward_ports", action="append", default=[])
     parser.add_argument("--stop", action="store_true")
     parser.add_argument("--clean", action="store_true")
     parser.add_argument("--prune", action="store_true")
@@ -266,16 +275,25 @@ def main():
             print("[claude] Committed image is stale (base rebuilt), starting from base")
     print(f"[claude] Start image: {start_image}")
 
-    # MCP ports
+    # Ports to forward host -> container: auto-detected MCP server ports, plus
+    # whatever the user named explicitly via --forward-port / CLAUDE_BOX_FORWARD_PORTS
+    # (any host service the container needs to reach, not just MCP).
     mcp_ports: set[int] = set(scan_mcp_configs(claude_dir, cwd, "claude"))
-    mcp_ports.update(parse_ports(os.environ.get("CLAUDE_BOX_MCP_PORTS", ""), *parsed.mcp_ports))
+    forward_ports: set[int] = set(
+        parse_ports(os.environ.get("CLAUDE_BOX_FORWARD_PORTS", ""), *parsed.forward_ports)
+    )
     sse_port = os.environ.get("CLAUDE_CODE_SSE_PORT", "")
-    if sse_port.isdigit() and int(sse_port) in mcp_ports:
-        print(f"[claude] ⚠️  MCP port {sse_port} collides with CLAUDE_CODE_SSE_PORT — skipping it")
-        mcp_ports.discard(int(sse_port))
+    if sse_port.isdigit():
+        sp = int(sse_port)
+        if sp in mcp_ports:
+            print(f"[claude] ⚠️  MCP port {sse_port} collides with CLAUDE_CODE_SSE_PORT — skipping it")
+            mcp_ports.discard(sp)
+        if sp in forward_ports:
+            print(f"[claude] ⚠️  Forwarded port {sse_port} collides with CLAUDE_CODE_SSE_PORT — skipping it")
+            forward_ports.discard(sp)
 
-    # Write ports file for the guard (IDE + MCP, combined)
-    all_ports = sorted(set(alive_ports) | mcp_ports)
+    # Write ports file for the guard (IDE + MCP + manually forwarded, combined)
+    all_ports = sorted(set(alive_ports) | mcp_ports | forward_ports)
     _write_ports(box_dir, all_ports)
     if all_ports:
         print(f"[claude] Port forwards: {', '.join(str(p) for p in all_ports)}")
@@ -362,14 +380,16 @@ def main():
     MAX_EXEC_ATTEMPTS = 3
     rc = 1
     for attempt in range(1, MAX_EXEC_ATTEMPTS + 1):
-        _ensure_container(
+        session_marker = _ensure_container(
             box_dir, container_name, profile, base_id, host_cwd, container_cwd,
             container_claude_dir, claude_dir, creation_env_args, extra_docker_args,
             extra_mounts, start_image,
         )
         _wait_for_ports(box_dir, {str(p) for p in all_ports})
 
-        finish = start_commit_watcher(box_dir, container_name, committed_image, base_id, host_cwd, profile)
+        finish = start_commit_watcher(
+            box_dir, container_name, committed_image, base_id, host_cwd, profile, session_marker,
+        )
         rc = run_session(exec_cmd)
         finish()
 
