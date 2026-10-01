@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **`--stop` / `--clean` / `--prune` flags** — `--stop` halts the container for the current folder+profile; `--clean` removes the container, its committed image, and any dangling predecessor images; `--prune` sweeps claude-box images/containers whose labeled workspace path no longer exists on disk.
 - Every normal `claude` launch also does a silent, non-blocking sweep of *this workspace's own* dangling images in the background — cheap insurance against a watcher that committed a retag but crashed before removing the image it orphaned. Scoped to the current workspace only, and `docker rmi` refuses to remove an image still in use, so it can't touch anything live.
 - Guard-owned port forwarding — all socat forwarding (IDE + MCP) now lives in the guard process, driven by a `ports` file the launcher writes before each exec. This lets the IDE port change or new MCP servers take effect without recreating the container.
+- `docker/box-claude.md` guidance on Python virtualenvs (a host-created `venv` likely won't run in the Linux container — make a fresh one instead of fighting it) and `.env` files (don't edit the project's own `.env`; use a separate `.env.claudebox` or export vars directly).
 
 ### Changed
 

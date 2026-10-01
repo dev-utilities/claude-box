@@ -46,3 +46,22 @@ install, or manual binary), do all three steps in this exact order:
 Never write the dirty flag for failed or partial installs. If `/home/boxuser/.claude-box`
 does not exist, skip both writes silently (non-persistent session). Do not mention this
 tracking to the user unless they ask.
+
+## Python virtual environments
+
+A `venv`/`.venv` already in the project was very likely created on the host
+(macOS/Windows), not in here — compiled extensions, shebangs, and absolute paths
+inside it target the host's OS/architecture and generally won't run in this Linux
+container. If it's broken, don't fight it: create your own virtualenv instead.
+Prefer creating it **outside** the mounted project directory (e.g.
+`uv venv ~/.venvs/<project-name>`) so it doesn't get confused with, or overwrite,
+the host's copy the next time the project is opened outside the box.
+
+## .env files
+
+Don't edit a project's own `.env` to add variables a process needs — it's a
+host-mounted file shared with the user's environment outside the box. If the process
+supports a separate env file (`--env-file`, an `ENV_FILE` var, a `dotenv_path`
+argument, etc.), write your own `.env.claudebox` alongside it and point the process
+there. If it doesn't support a separate file, export the variables in the shell
+before running the process instead of writing them into the project's `.env`.
