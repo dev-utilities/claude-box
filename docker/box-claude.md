@@ -30,5 +30,18 @@ authorizes exactly that commit, not future ones.
 
 You have passwordless sudo: `sudo apt-get install ...` works for system deps. Use nvm
 for other Node versions and `uv python install` for other Pythons — all user-space.
-Installed packages may persist across sessions via the container commit; don't assume
-they will until you've verified.
+
+Installed packages persist across sessions via an automatic container commit, triggered
+by a dirty flag you write. After every successful install (apt, pip, npm, cargo, go
+install, or manual binary), do all three steps in this exact order:
+
+1. Verify the install succeeded — run its verify command (e.g. `rg --version`) and
+   proceed only if it exits 0.
+2. Overwrite `/home/boxuser/.claude-box/dirty` with a single line: `<name> <type>`
+   Example: `ripgrep apt`
+3. Append one JSON object to `/home/boxuser/.claude-box/audit.jsonl`:
+   `{"name":"ripgrep","type":"apt","verify_cmd":"rg --version","ts":"<ISO8601 timestamp>"}`
+
+Never write the dirty flag for failed or partial installs. If `/home/boxuser/.claude-box`
+does not exist, skip both writes silently (non-persistent session). Do not mention this
+tracking to the user unless they ask.

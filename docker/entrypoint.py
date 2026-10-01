@@ -3,6 +3,7 @@
 
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -10,15 +11,16 @@ from pathlib import Path
 
 GUARD_LOG_MAX_BYTES = 524288  # 512 KB
 
+# Fixed path where the launcher mounts the per-workspace state directory.
+# Guard reads ports from here and writes ports.applied.
+BOX_DIR = Path("/home/boxuser/.claude-box")
+
 
 def main():
     config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
     default_claude_str = os.environ.get("DEFAULT_CLAUDE_PATH", "")
-    sse_port = os.environ.get("CLAUDE_CODE_SSE_PORT", "")
 
     print(f"[entrypoint] ========== STARTUP ==========")
-    print(f"[entrypoint] Args: {sys.argv[1:]}")
-    print(f"[entrypoint] CLAUDE_CODE_SSE_PORT={sse_port or '<not set>'}")
     print(f"[entrypoint] DEFAULT_CLAUDE_PATH={default_claude_str or '<not set>'}")
     print(f"[entrypoint] CLAUDE_CONFIG_DIR={config_dir}")
 
@@ -46,47 +48,7 @@ def main():
     for p in sorted((shared_dir / "ide").iterdir()):
         print(f"  {p}")
 
-    # Start socat
-    if sse_port:
-        socat_log_path = config_dir / "socat.log"
-        socat_log = open(socat_log_path, "w")
-        socat = subprocess.Popen(
-            ["socat", "-v",
-             f"TCP-LISTEN:{sse_port},fork,reuseaddr",
-             f"TCP:host.docker.internal:{sse_port}"],
-            stdout=socat_log,
-            stderr=socat_log,
-        )
-        socat_log.close()
-        time.sleep(0.5)
-        if socat.poll() is not None:
-            print("[entrypoint] ERROR: socat failed to start")
-        else:
-            print(f"[entrypoint] socat started (PID={socat.pid})")
-        print(f"[entrypoint] socat log: {socat_log_path}")
-    else:
-        print("[entrypoint] Skipping socat (CLAUDE_CODE_SSE_PORT not set)")
-
-    # Forward host-local MCP server ports so localhost:<port> URLs work in-container
-    mcp_ports = os.environ.get("CLAUDE_BOX_MCP_PORTS", "")
-    if mcp_ports:
-        mcp_log_path = config_dir / "mcp-socat.log"
-        with open(mcp_log_path, "a") as mcp_log:
-            for port in mcp_ports.split(","):
-                port = port.strip()
-                if not port.isdigit():
-                    continue
-                subprocess.Popen(
-                    ["socat",
-                     f"TCP-LISTEN:{port},fork,reuseaddr",
-                     f"TCP:host.docker.internal:{port}"],
-                    stdout=mcp_log,
-                    stderr=mcp_log,
-                )
-                print(f"[entrypoint] MCP forward: localhost:{port} -> host:{port}")
-        print(f"[entrypoint] MCP socat log: {mcp_log_path}")
-
-    # Start guard as detached subprocess — survives os.execvp below
+    # Start guard as detached subprocess — outlives this process (which blocks below)
     guard_log_path = shared_dir / "guard.log"
     guard_args = [sys.executable, __file__, "--guard", str(shared_dir)]
     if config_ide is not None:
@@ -95,10 +57,13 @@ def main():
     subprocess.Popen(guard_args, stdout=guard_log, stderr=guard_log)
     guard_log.close()
     print(f"[entrypoint] Guard started — log: {guard_log_path}")
-    print(f"[entrypoint] Launching: claude {' '.join(sys.argv[1:])}")
+    print(f"[entrypoint] Supervisor ready — awaiting sessions via docker exec")
     print(f"[entrypoint] =============================")
 
-    os.execvp("claude", ["claude"] + sys.argv[1:])
+    # Block forever. Socat is managed by the guard via the ports file.
+    # Sessions arrive via `docker exec`, not by re-running the entrypoint.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    signal.pause()
 
 
 def _sync_ide_locks(src: Path, dst: Path) -> None:
@@ -113,7 +78,74 @@ def _sync_ide_locks(src: Path, dst: Path) -> None:
             stale.unlink(missing_ok=True)
 
 
-def run_guard(shared_dir: Path, config_ide: Path | None = None):
+# Per-guard socat process table: port -> Popen
+_socat_procs: "dict[int, subprocess.Popen]" = {}
+
+
+def _update_socat(glog) -> None:
+    """Diff desired ports (ports file) against running socat children; start/stop as needed."""
+    if not BOX_DIR.is_dir():
+        return
+
+    ports_file = BOX_DIR / "ports"
+    desired: set = set()
+    if ports_file.exists():
+        try:
+            for line in ports_file.read_text().splitlines():
+                tok = line.strip()
+                if tok.isdigit():
+                    desired.add(int(tok))
+        except Exception:
+            pass
+
+    running = set(_socat_procs.keys())
+
+    # Start forwards for new ports
+    for port in desired - running:
+        try:
+            log_path = BOX_DIR / f"socat-{port}.log"
+            f = open(log_path, "a")
+            proc = subprocess.Popen(
+                ["socat",
+                 f"TCP-LISTEN:{port},fork,reuseaddr",
+                 f"TCP:host.docker.internal:{port}"],
+                stdout=f, stderr=f,
+            )
+            f.close()
+            _socat_procs[port] = proc
+            glog(f"socat started port {port} (PID={proc.pid})")
+        except Exception as e:
+            glog(f"socat start failed port {port}: {e}")
+
+    # Stop forwards for removed ports
+    for port in running - desired:
+        proc = _socat_procs.pop(port)
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        glog(f"socat stopped port {port}")
+
+    # Reschedule crashed socat processes (they'll restart on the next cycle)
+    for port in list(_socat_procs):
+        if _socat_procs[port].poll() is not None:
+            glog(f"socat port {port} died unexpectedly, will restart next cycle")
+            del _socat_procs[port]
+
+    # Write the applied set for the host launcher's startup wait
+    try:
+        (BOX_DIR / "ports.applied").write_text(
+            "\n".join(str(p) for p in sorted(_socat_procs.keys()))
+        )
+    except Exception:
+        pass
+
+
+def run_guard(shared_dir: Path, config_ide: "Path | None" = None):
     guard_uuid = _read_uuid()
     ide_dir = shared_dir / "ide"
     backup_dir = shared_dir / "ide-backups"
@@ -142,8 +174,10 @@ def run_guard(shared_dir: Path, config_ide: Path | None = None):
         if loop_count % 300 == 0:
             truncate_log()
 
-        # Per-container sync — runs regardless of leader status because each
-        # container owns its own config_ide and doesn't compete with others.
+        # Socat management — not leader-gated; each container owns its own forwards
+        _update_socat(glog)
+
+        # Per-container IDE lock sync — not leader-gated either
         if config_ide is not None:
             _sync_ide_locks(ide_dir, config_ide)
 
